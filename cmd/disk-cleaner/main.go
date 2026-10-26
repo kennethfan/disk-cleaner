@@ -20,14 +20,24 @@ import (
 	"github.com/kennethfan/disk-cleaner/internal/model"
 	"github.com/kennethfan/disk-cleaner/internal/scan"
 	"github.com/kennethfan/disk-cleaner/internal/trash"
+	"github.com/kennethfan/disk-cleaner/internal/ui"
 )
 
 func main() {
+	// 无参数时默认启动图形界面。
+	// 这是双击 .app 的启动路径：macOS 通过 open 启动时不会传入任何参数，
+	// 若此处打印用法并退出，双击就会表现为"闪退/无反应"。
 	if len(os.Args) < 2 {
-		usage()
-		os.Exit(2)
+		if err := ui.Run(); err != nil {
+			fail(err)
+		}
+		return
 	}
 	switch os.Args[1] {
+	case "gui":
+		if err := ui.Run(); err != nil {
+			fail(err)
+		}
 	case "scan":
 		if err := runScan(os.Args[2:]); err != nil {
 			fail(err)
@@ -49,6 +59,8 @@ func usage() {
 	fmt.Fprint(os.Stderr, `disk-cleaner — macOS 磁盘空间清理工具
 
 用法:
+  disk-cleaner                 直接启动图形界面（等同 gui）
+  disk-cleaner gui             启动图形界面
   disk-cleaner scan  [选项]   扫描并预览可清理内容（只读，不删除任何东西）
   disk-cleaner clean [选项]   清理选定类别（默认需二次确认）
 
@@ -62,6 +74,7 @@ clean 选项:
   --dry-run       只打印将要执行的动作，不实际移动文件
 
 示例:
+  disk-cleaner gui
   disk-cleaner scan
   disk-cleaner scan --large 1024
   disk-cleaner clean --category 用户缓存 --dry-run

@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>CFBundleName</key>
+	<string>磁盘清理</string>
+	<key>CFBundleDisplayName</key>
+	<string>磁盘清理</string>
+	<key>CFBundleExecutable</key>
+	<string>disk-cleaner</string>
+	<key>CFBundleIdentifier</key>
+	<string>com.kennethfan.disk-cleaner</string>
+	<key>CFBundleVersion</key>
+	<string>@VERSION@</string>
+	<key>CFBundleShortVersionString</key>
+	<string>@VERSION@</string>
+	<key>CFBundlePackageType</key>
+	<string>APPL</string>
+	<key>CFBundleSignature</key>
+	<string>????</string>
+	<key>LSMinimumSystemVersion</key>
+	<string>11.0</string>
+	<key>NSHighResolutionCapable</key>
+	<true/>
+	<key>NSHumanReadableCopyright</key>
+	<string>MIT License</string>
+	<!-- 说明为何需要访问用户文件：扫描缓存与大文件需要读取磁盘 -->
+	<key>NSDesktopFolderUsageDescription</key>
+	<string>扫描桌面上的大文件以帮助释放空间</string>
+	<key>NSDocumentsFolderUsageDescription</key>
+	<string>扫描文稿目录中的大文件以帮助释放空间</string>
+	<key>NSDownloadsFolderUsageDescription</key>
+	<string>扫描下载目录中的大文件与陈旧文件以帮助释放空间</string>
+</dict>
+</plist>

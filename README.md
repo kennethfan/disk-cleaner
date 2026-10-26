@@ -2,7 +2,7 @@
 
 macOS 磁盘空间清理工具。扫描可清理内容，预览确认后移入废纸篓（可恢复）。
 
-当前进度：**阶段 1+2（引擎层）已完成** —— 扫描、安全检查、安全删除、单元测试全部就绪，提供命令行界面。图形界面（Fyne）在阶段 3 接入同一套引擎。
+当前进度：**阶段 1-3 已完成** —— 扫描引擎、安全删除、单元测试、Fyne 图形界面全部就绪，可打包为双击运行的 `.app`。
 
 ## 设计原则
 
@@ -42,12 +42,41 @@ macOS 磁盘空间清理工具。扫描可清理内容，预览确认后移入�
 
 ```bash
 make build          # 编译到 bin/disk-cleaner
+make app            # 打包为 dist/磁盘清理.app（含 ad-hoc 签名）
 make test           # 单元测试
 make cover          # 覆盖率
 make check          # 格式 + vet + 测试
 ```
 
 > 注意：本机 Go 模块缓存位于 `~/.gvm`。若在受限沙箱中构建，需提升文件访问权限，否则会报 `open .../sumdb/...: operation not permitted`。
+
+## 图形界面
+
+```bash
+make app && open "dist/磁盘清理.app"
+# 或
+./bin/disk-cleaner gui
+```
+
+无参数启动也直接进入图形界面（`./bin/disk-cleaner`），这是双击 `.app` 的启动路径。
+
+界面能力：
+
+- 启动即自动扫描，按类别分组展示（开发缓存 / 用户缓存 / 系统缓存 / 垃圾文件 / 大文件 / APFS 快照）
+- 每项显示体积与彩色风险标记（● 低 绿 / ● 中 橙 / ● 高 红）
+- 支持逐项勾选，或按类别「全选本类 / 全不选」
+- 顶部实时汇总：总项数、总大小、已选项数与体积
+- 清理前弹二次确认，高风险项额外警告
+- 清理后自动重新扫描刷新列表
+- 永久删除项（废纸篓、APFS 快照）**置灰不可勾选**，强制走专用流程
+
+界面与 CLI 共用同一套 `scan` / `clean` 引擎，安全语义完全一致。
+
+### 关于签名
+
+`make app` 会对产物做 ad-hoc 签名（`codesign -s -`）。未签名的 `.app` 会被 Gatekeeper 拒绝，表现为双击无反应。
+
+**本地自用足够**；对外分发仍需 Apple 开发者证书 + `notarytool` 公证，否则用户需手动在「系统设置 → 隐私与安全性」中放行。
 
 ## 使用
 
@@ -104,28 +133,38 @@ disk-cleaner clean --category 开发缓存 --yes
 ```
 disk-cleaner/
 ├── cmd/disk-cleaner/        CLI 入口（main / json / categories）
+├── packaging/Info.plist     .app 打包配置
 └── internal/
     ├── model/               统一数据模型（Item / Risk / Category / Report）
     ├── guard/               删除安全闸门（白名单 + 保护路径）
     ├── trash/               移入废纸篓（重名不覆盖、跨卷回退）
     ├── scan/                六个扫描器 + 并发调度 + 去重
-    └── clean/               引擎：guard + trash 组合执行
+    ├── clean/               引擎：guard + trash 组合执行
+    └── ui/                  Fyne 图形界面（Controller + mainView）
 ```
 
-依赖方向单向：`cmd → clean → {guard, trash} → model`，`cmd → scan → model`。`scan` 不依赖 `clean`，确保扫描层无法执行删除。
+依赖方向单向：`cmd → ui → clean → {guard, trash} → model`，`cmd → scan → model`。`scan` 不依赖 `clean`，确保扫描层无法执行删除。
+
+UI 层通过 `Controller` 访问引擎，不直接操作文件系统；扫描与清理均在其他 goroutine 执行，UI 更新统一经 `fyne.Do` 回到主线程。
 
 ## 测试
 
-20+ 个单元测试，重点覆盖安全边界：
+30+ 个单元测试，重点覆盖安全边界：
 
 - **guard**：`..` 穿越、受保护路径、根目录本身、白名单外、前缀混淆（`Library2` vs `Library`）
 - **trash**：重名不覆盖、目录递归、符号链接保留、跨卷复制、序号递增
 - **clean**：白名单拒绝、永久删除项隔离、单项失败不中断整批
 - **scan**：并发容错、去重与类别优先级、阈值筛选、废纸篓标记
+- **ui**：永久删除项禁用、勾选统计、选中项排序、空报告占位
 
-覆盖率：`clean` 92.5%、`guard` 85.4%、`scan` 76.7%、`trash` 62.7%。
+覆盖率：`clean` 92.5%、`guard` 85.4%、`scan` 76.7%、`trash` 62.7%、`ui` 49.3%。
+
+界面截图可通过环境变量生成，便于人工核对布局：
+
+```bash
+UI_SNAPSHOT=/tmp/ui.png go test ./internal/ui/ -run TestRenderMainView -v
+```
 
 ## 后续阶段
 
-- **阶段 3**：Fyne 图形界面（分类树 + 勾选 + 二次确认对话框）
-- **阶段 4**：`.app` 打包、图标、README 补截图
+- **阶段 4（剩余）**：应用图标、代码签名证书、公证流程
