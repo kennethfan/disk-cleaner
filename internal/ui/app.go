@@ -2,6 +2,7 @@ package ui
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"image/color"
 	"os"
@@ -92,6 +93,21 @@ func (c *Controller) Home() string { return c.home }
 // Scan 执行一次完整扫描。可在后台 goroutine 中调用。
 func (c *Controller) Scan() *model.Report {
 	return scan.ScanAll(context.Background(), scan.All(c.opts), c.opts)
+}
+
+// Children 列出某个目录的直接子项，供树形界面展开时按需调用。
+//
+// 这里同样做安全检查：只有通过 guard 的目录才允许列子项，
+// 防止树节点被构造出白名单外的路径。
+func (c *Controller) Children(dir string) ([]model.Item, error) {
+	if err := c.g.Check(dir); err != nil {
+		// 根目录本身被 guard 拒绝（ErrRootItself），但它是合法的展开起点，
+		// 因此单独放行"列出子项"这一只读操作。
+		if !errors.Is(err, guard.ErrRootItself) {
+			return nil, err
+		}
+	}
+	return scan.NewChildScanner().Children(context.Background(), dir)
 }
 
 // Clean 执行清理。调用方必须已取得用户确认。

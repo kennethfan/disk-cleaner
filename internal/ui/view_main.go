@@ -2,7 +2,6 @@ package ui
 
 import (
 	"fmt"
-	"sort"
 
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/canvas"
@@ -14,14 +13,11 @@ import (
 	"github.com/kennethfan/disk-cleaner/internal/model"
 )
 
-// itemRow 是列表中的一行，持有勾选状态与对应数据。
-type itemRow struct {
-	item    model.Item
-	checked bool
-	check   *widget.Check
-}
-
 // mainView 是主界面。
+//
+// 列表用树形结构呈现：类别 → 清理项 → 子目录。
+// 子目录按需加载（展开时才扫描），因为实测 ~/Library/Caches
+// 有 104 个条目、~/Downloads 有 163 个，一次性全展开会卡死界面。
 type mainView struct {
 	win  fyne.Window
 	ctrl *Controller
@@ -29,13 +25,12 @@ type mainView struct {
 	summary   *widget.Label
 	statusLbl *widget.Label
 	progress  *widget.ProgressBarInfinite
-	scroll    *container.Scroll
 	cleanBtn  *widget.Button
 	rescanBtn *widget.Button
+	tree      *widget.Tree
+	model     *treeModel
 
-	// rows 按类别分组保存，便于"全选本类别"操作。
-	rows []*itemRow
-	// report 是最近一次扫描结果，供清理后刷新使用。
+	// report 是最近一次扫描结果。
 	report *model.Report
 	// scanning 防止重复触发扫描。
 	scanning bool
@@ -56,10 +51,13 @@ func (v *mainView) build() fyne.CanvasObject {
 	v.cleanBtn = widget.NewButton("清理选中项", v.onClean)
 	v.cleanBtn.Disable()
 
-	// 空状态提示。
-	v.scroll = container.NewVScroll(container.NewVBox(
-		widget.NewLabel("点击「重新扫描」查找可清理的内容"),
-	))
+	// 树模型与树组件。
+	v.model = newTreeModel(v)
+	v.tree = v.model.build()
+	v.tree.OnBranchOpened = func(id treeNodeID) {
+		// 只在首次展开时触发加载；已加载的节点由 loadChildren 内部拦截。
+		v.model.loadChildren(id, v.tree)
+	}
 
 	header := container.NewVBox(
 		container.NewHBox(
@@ -82,7 +80,7 @@ func (v *mainView) build() fyne.CanvasObject {
 		),
 	)
 
-	return container.NewBorder(header, bottom, nil, nil, v.scroll)
+	return container.NewBorder(header, bottom, nil, nil, v.tree)
 }
 
 // onRescan 触发一次异步扫描。
@@ -110,128 +108,60 @@ func (v *mainView) onRescan() {
 	}()
 }
 
-// renderReport 把扫描结果渲染到列表。
+// categoryOrder 是类别在树中的展示顺序，按可清理体积从大到小排列。
+var categoryOrder = []model.Category{
+	model.CategoryDevCache,
+	model.CategoryUserCache,
+	model.CategorySystemCache,
+	model.CategoryJunk,
+	model.CategoryLargeFile,
+	model.CategorySnapshot,
+}
+
+// renderReport 把扫描结果填进树模型并刷新。
 func (v *mainView) renderReport(r *model.Report) {
-	v.rows = nil
+	v.model.reset()
+
 	groups := r.ByCategory()
-
-	order := []model.Category{
-		model.CategoryDevCache,
-		model.CategoryUserCache,
-		model.CategorySystemCache,
-		model.CategoryJunk,
-		model.CategoryLargeFile,
-		model.CategorySnapshot,
-	}
-
-	list := container.NewVBox()
-	for _, cat := range order {
+	var roots []treeNodeID
+	for _, cat := range categoryOrder {
 		g, ok := groups[cat]
 		if !ok || len(g.Items) == 0 {
 			continue
 		}
-		list.Add(v.buildCategoryHeader(cat, g))
-
-		// 组内按大小降序，已在 Report.Finalize 中保证，这里直接使用。
-		for i := range g.Items {
-			list.Add(v.buildRow(g.Items[i]))
-		}
-		list.Add(widget.NewSeparator())
+		id := catNodeID(cat)
+		v.model.setCategoryItems(cat, g.Items)
+		roots = append(roots, id)
 	}
 
-	if len(v.rows) == 0 {
-		list.Add(widget.NewLabel("未发现可清理的内容。"))
-		v.cleanBtn.Disable()
-	}
+	// 树必须有唯一根节点，这里用 rootNodeID 作为全局汇总节点。
+	v.model.mu.Lock()
+	v.model.children[rootNodeID] = roots
+	v.model.loaded[rootNodeID] = true
+	v.model.mu.Unlock()
 
-	// Scroll 没有 SetContent 方法，替换 Content 字段后需显式 Refresh。
-	v.scroll.Content = list
-	v.scroll.Refresh()
+	v.tree.Root = rootNodeID
+	v.tree.OpenAllBranches()
+	v.tree.Refresh()
 	v.updateSummary()
 
-	msg := fmt.Sprintf("扫描完成：%d 项，合计 %s", len(r.Items), model.HumanBytes(r.TotalBytes))
+	msg := fmt.Sprintf("扫描完成：%d 项，合计 %s。点击带箭头的目录可展开查看明细。",
+		len(r.Items), model.HumanBytes(r.TotalBytes))
 	if len(r.Errors) > 0 {
 		msg += fmt.Sprintf("（%d 个扫描器出错）", len(r.Errors))
 	}
 	v.statusLbl.SetText(msg)
 }
 
-// buildCategoryHeader 构造类别标题行，带"全选本类"按钮。
-func (v *mainView) buildCategoryHeader(cat model.Category, g model.CategoryGroup) fyne.CanvasObject {
-	icon := widget.NewIcon(categoryIcon(cat))
-	title := canvas.NewText(
-		fmt.Sprintf("%s  ·  %s", cat, model.HumanBytes(g.Bytes)),
-		themeColorForeground(),
-	)
-	title.TextStyle = fyne.TextStyle{Bold: true}
-
-	selectAll := widget.NewButton("全选本类", func() {
-		for _, row := range v.rows {
-			if row.item.Category == cat {
-				row.check.SetChecked(true)
-			}
-		}
-	})
-	selectAll.Importance = widget.LowImportance
-
-	selectNone := widget.NewButton("全不选", func() {
-		for _, row := range v.rows {
-			if row.item.Category == cat {
-				row.check.SetChecked(false)
-			}
-		}
-	})
-	selectNone.Importance = widget.LowImportance
-
-	return container.NewHBox(icon, title, layout.NewSpacer(), selectAll, selectNone)
-}
-
-// buildRow 构造单条清理项。
-func (v *mainView) buildRow(it model.Item) fyne.CanvasObject {
-	row := &itemRow{item: it}
-
-	label := fmt.Sprintf("%s   %s", it.DisplayName, model.HumanBytes(it.Size))
-	if it.Permanent {
-		label += "   [需专用流程]"
-	}
-
-	row.check = widget.NewCheck(label, func(checked bool) {
-		row.checked = checked
-		v.updateSummary()
-	})
-	// 永久删除项不允许勾选：它们不走废纸篓流程，必须用专用方式处理。
-	if it.Permanent {
-		row.check.Disable()
-	}
-
-	// 风险标记用 canvas.Text 以保留颜色，但必须放进固定宽度的 GridWrap：
-	// canvas.Text 的 MinSize 对中文字形宽度估算偏小，直接放在 Border 右槽
-	// 会被压缩到末尾字符被裁切。固定宽度 + 左对齐可确保完整显示。
-	risk := canvas.NewText(riskBadge(it.Risk), riskColor(it.Risk))
-	risk.TextStyle = fyne.TextStyle{Bold: true}
-	risk.Alignment = fyne.TextAlignLeading
-
-	v.rows = append(v.rows, row)
-	riskBox := container.NewGridWrap(fyne.NewSize(riskBadgeWidth, riskSizeHeight), risk)
-	return container.NewBorder(nil, nil, nil, riskBox, row.check)
-}
-
-// 风险标记的固定尺寸：留足中文字形宽度，避免被裁切。
-const (
-	riskBadgeWidth float32 = 72
-	riskSizeHeight float32 = 32
-)
-
 // updateSummary 根据勾选状态刷新顶部摘要与按钮可用性。
 func (v *mainView) updateSummary() {
-	var count int
+	items := v.model.selectedItems()
+
 	var bytes int64
-	for _, row := range v.rows {
-		if row.checked {
-			count++
-			bytes += row.item.Size
-		}
+	for _, it := range items {
+		bytes += it.Size
 	}
+	count := len(items)
 
 	if v.report != nil {
 		v.summary.SetText(fmt.Sprintf("共 %d 项，合计 %s  ·  已选 %d 项（%s）",
@@ -253,36 +183,31 @@ func (v *mainView) updateSummary() {
 	v.cleanBtn.SetText(fmt.Sprintf("清理选中项 (%d)", count))
 }
 
-// selected 返回当前勾选的项。
-func (v *mainView) selected() []model.Item {
-	var out []model.Item
-	for _, row := range v.rows {
-		if row.checked {
-			out = append(out, row.item)
-		}
-	}
-	sort.SliceStable(out, func(i, j int) bool { return out[i].Size > out[j].Size })
-	return out
-}
-
 // onClean 走二次确认后执行清理。
 func (v *mainView) onClean() {
-	items := v.selected()
+	items := v.model.selectedItems()
 	if len(items) == 0 {
 		return
 	}
 
 	var total int64
 	highRisk := 0
+	dirCount := 0
 	for _, it := range items {
 		total += it.Size
 		if it.Risk == model.RiskHigh {
 			highRisk++
 		}
+		if it.IsDir {
+			dirCount++
+		}
 	}
 
 	body := fmt.Sprintf("将把 %d 项（共 %s）移入废纸篓。\n\n"+
 		"这些内容可以随时从废纸篓恢复。", len(items), model.HumanBytes(total))
+	if dirCount > 0 {
+		body += fmt.Sprintf("\n\n其中 %d 项是完整目录，会连同其全部内容一起移动。", dirCount)
+	}
 	if highRisk > 0 {
 		body += fmt.Sprintf("\n\n⚠ 其中 %d 项为高风险，删除后可能需要重新下载或重新生成。", highRisk)
 	}

@@ -22,6 +22,16 @@ var (
 	colorMuted      = color.NRGBA{R: 0x75, G: 0x75, B: 0x75, A: 0xFF} // 次要文字
 )
 
+// 风险标记的固定尺寸。
+//
+// 必须用固定宽度而非依赖 canvas.Text 的 MinSize：
+// 后者对中文字形宽度估算偏小，放在 Border 右槽会被压缩到
+// 末尾字符被裁切（"● 高" 只显示成 "●"）。
+const (
+	riskBadgeWidth float32 = 72
+	riskSizeHeight float32 = 32
+)
+
 // riskColor 返回风险等级对应的颜色。
 func riskColor(r model.Risk) color.Color {
 	switch r {
