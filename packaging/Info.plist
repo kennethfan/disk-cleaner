@@ -8,6 +8,8 @@
 	<string>磁盘清理</string>
 	<key>CFBundleExecutable</key>
 	<string>disk-cleaner</string>
+	<key>CFBundleIconFile</key>
+	<string>AppIcon</string>
 	<key>CFBundleIdentifier</key>
 	<string>com.kennethfan.disk-cleaner</string>
 	<key>CFBundleVersion</key>

@@ -2,7 +2,7 @@
 
 macOS 磁盘空间清理工具。扫描可清理内容，预览确认后移入废纸篓（可恢复）。
 
-当前进度：**阶段 1-3 已完成** —— 扫描引擎、安全删除、单元测试、Fyne 图形界面全部就绪，可打包为双击运行的 `.app`。
+当前进度：**阶段 1-4 已完成** —— 扫描引擎、安全删除、单元测试、Fyne 图形界面、应用图标、签名与公证流程全部就绪。
 
 ## 设计原则
 
@@ -42,10 +42,12 @@ macOS 磁盘空间清理工具。扫描可清理内容，预览确认后移入�
 
 ```bash
 make build          # 编译到 bin/disk-cleaner
-make app            # 打包为 dist/磁盘清理.app（含 ad-hoc 签名）
+make app            # 打包为 dist/磁盘清理.app（含图标 + ad-hoc 签名）
+make icon           # 从 packaging/icon-source.png 重新生成 .icns
 make test           # 单元测试
 make cover          # 覆盖率
 make check          # 格式 + vet + 测试
+make help           # 列出全部目标
 ```
 
 > 注意：本机 Go 模块缓存位于 `~/.gvm`。若在受限沙箱中构建，需提升文件访问权限，否则会报 `open .../sumdb/...: operation not permitted`。
@@ -72,11 +74,38 @@ make app && open "dist/磁盘清理.app"
 
 界面与 CLI 共用同一套 `scan` / `clean` 引擎，安全语义完全一致。
 
-### 关于签名
+## 应用图标
 
-`make app` 会对产物做 ad-hoc 签名（`codesign -s -`）。未签名的 `.app` 会被 Gatekeeper 拒绝，表现为双击无反应。
+图标由 AGNES API 生成（硬盘 + 琥珀色扫除笔触），存于 `packaging/`：
 
-**本地自用足够**；对外分发仍需 Apple 开发者证书 + `notarytool` 公证，否则用户需手动在「系统设置 → 隐私与安全性」中放行。
+- `icon-source.png` —— 1024×1024 源图，圆角外已置透明
+- `AppIcon.icns` —— 10 个尺寸的完整图标集
+
+`make icon` 可从源图重新生成 `.icns`（需 Python3 + Pillow）。
+
+## 签名与公证
+
+默认 `make app` 产出 **ad-hoc 签名**版本，仅够本机自用。
+
+要让他人双击即可打开，需 Apple 开发者账号：
+
+```bash
+# 1. 正式签名（启用 Hardened Runtime，公证的硬性要求）
+make app SIGN_IDENTITY="Developer ID Application: Your Name (TEAMID)"
+
+# 2. 保存公证凭据（只需一次）
+make notary-setup APPLE_ID="you@example.com" TEAM_ID="ABCDE12345" APP_PASSWORD="xxxx-xxxx-xxxx-xxxx"
+
+# 3. 提交公证并装订票据
+make notarize
+
+# 4. 复核
+make verify-sign
+```
+
+详细说明、失败排查与不公证的分发方式见 [docs/signing.md](docs/signing.md)。
+
+> **本机当前无代码签名证书**（`security find-identity -v -p codesigning` 返回 0 个），因此只能产出 ad-hoc 版本。拿到证书后上述命令可直接使用，无需改代码。
 
 ## 使用
 
@@ -133,7 +162,11 @@ disk-cleaner clean --category 开发缓存 --yes
 ```
 disk-cleaner/
 ├── cmd/disk-cleaner/        CLI 入口（main / json / categories）
-├── packaging/Info.plist     .app 打包配置
+├── docs/signing.md          签名与公证完整指南
+├── packaging/
+│   ├── Info.plist           .app 打包配置
+│   ├── AppIcon.icns         图标集（10 尺寸）
+│   └── icon-source.png      1024×1024 图标源图
 └── internal/
     ├── model/               统一数据模型（Item / Risk / Category / Report）
     ├── guard/               删除安全闸门（白名单 + 保护路径）
@@ -165,6 +198,16 @@ UI 层通过 `Controller` 访问引擎，不直接操作文件系统；扫描与
 UI_SNAPSHOT=/tmp/ui.png go test ./internal/ui/ -run TestRenderMainView -v
 ```
 
-## 后续阶段
+## 构建目标速查
 
-- **阶段 4（剩余）**：应用图标、代码签名证书、公证流程
+| 命令 | 作用 |
+|---|---|
+| `make build` | 编译 CLI + GUI 二进制 |
+| `make app` | 打包 `.app`（图标 + ad-hoc 签名） |
+| `make app SIGN_IDENTITY=...` | 用开发者证书签名 |
+| `make icon` | 重新生成 `.icns` |
+| `make verify-sign` | 检查签名、Gatekeeper、公证票据 |
+| `make notary-setup` | 保存公证凭据到钥匙串 |
+| `make notarize` | 提交公证并装订票据 |
+| `make app-unsigned` | 打包但不签名（排查签名问题用） |
+| `make check` | 格式 + vet + 全部测试 |

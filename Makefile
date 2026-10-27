@@ -6,8 +6,17 @@ BINARY  := disk-cleaner
 BUILD   := bin
 PKG     := ./cmd/disk-cleaner
 APP     := dist/磁盘清理.app
+VERSION := 0.4.0
 
-.PHONY: all build run test cover vet fmt fmt-check check clean scan dry gui app icon
+# 正式签名用的开发者身份。留空则使用 ad-hoc 签名。
+# 用法：make app SIGN_IDENTITY="Developer ID Application: Your Name (TEAMID)"
+SIGN_IDENTITY ?=
+
+# 公证用的凭据 profile 名（由 make notary-setup 创建）
+NOTARY_PROFILE ?= disk-cleaner-notary
+
+.PHONY: all build run test cover vet fmt fmt-check check clean scan dry gui \
+        app app-unsigned icon notary-setup notarize verify-sign help
 
 all: check build
 
@@ -33,20 +42,86 @@ scan: build
 dry: build
 	./$(BUILD)/$(BINARY) clean --category 用户缓存 --dry-run
 
-## app: 打包为可双击的 .app
+## icon: 从 packaging/icon-source.png 重新生成 AppIcon.icns
 #
-# 未签名的 .app 会被 macOS Gatekeeper 直接拒绝（spctl 返回
-# "rejected / no usable signature"），表现为双击无反应。
-# 这里用 ad-hoc 签名（-s -）解决本地运行问题；
-# 对外分发仍需 Apple 开发者证书 + notarytool 公证。
+# 需要 Python3 + Pillow。图标规范要求圆角外透明，
+# icon-source.png 已按此处理（圆角外 alpha=0）。
+icon:
+	@python3 packaging/make_icon.py
+
+## app: 打包为可双击的 .app（含图标与签名）
+#
+# 未签名的 .app 会被 macOS Gatekeeper 拒绝，表现为双击无反应。
+# 默认走 ad-hoc 签名，仅够本机自用；
+# 传 SIGN_IDENTITY="Developer ID Application: ..." 则用正式证书签名。
 app: build
 	@rm -rf "$(APP)"
 	@mkdir -p "$(APP)/Contents/MacOS" "$(APP)/Contents/Resources"
 	@cp $(BUILD)/$(BINARY) "$(APP)/Contents/MacOS/$(BINARY)"
-	@sed 's/@VERSION@/0.3.0/g' packaging/Info.plist > "$(APP)/Contents/Info.plist"
-	@codesign --force --deep --sign - "$(APP)" 2>&1 | grep -v 'replacing existing signature' || true
-	@echo "已生成 $(APP)（ad-hoc 签名）"
+	@sed 's/@VERSION@/$(VERSION)/g' packaging/Info.plist > "$(APP)/Contents/Info.plist"
+	@cp packaging/AppIcon.icns "$(APP)/Contents/Resources/AppIcon.icns"
+	@if [ -n "$(SIGN_IDENTITY)" ]; then \
+		echo "使用证书签名: $(SIGN_IDENTITY)"; \
+		codesign --force --deep --options runtime --timestamp \
+			--sign "$(SIGN_IDENTITY)" "$(APP)"; \
+	else \
+		echo "使用 ad-hoc 签名（仅本机自用）"; \
+		codesign --force --deep --sign - "$(APP)" 2>&1 \
+			| grep -v 'replacing existing signature' || true; \
+	fi
+	@echo "已生成 $(APP)  v$(VERSION)"
 	@echo "运行: open \"$(APP)\""
+
+## app-unsigned: 打包但不签名（用于排查签名相关问题）
+app-unsigned: build
+	@rm -rf "$(APP)"
+	@mkdir -p "$(APP)/Contents/MacOS" "$(APP)/Contents/Resources"
+	@cp $(BUILD)/$(BINARY) "$(APP)/Contents/MacOS/$(BINARY)"
+	@sed 's/@VERSION@/$(VERSION)/g' packaging/Info.plist > "$(APP)/Contents/Info.plist"
+	@cp packaging/AppIcon.icns "$(APP)/Contents/Resources/AppIcon.icns"
+	@echo "已生成未签名的 $(APP)"
+
+## verify-sign: 检查 .app 的签名与 Gatekeeper 状态
+verify-sign:
+	@echo "=== 签名信息 ==="
+	@codesign -dv --verbose=2 "$(APP)" 2>&1 | head -12 || true
+	@echo
+	@echo "=== 签名有效性 ==="
+	@codesign --verify --deep --strict --verbose=2 "$(APP)" 2>&1 || true
+	@echo
+	@echo "=== Gatekeeper 评估 ==="
+	@spctl -a -vvv -t exec "$(APP)" 2>&1 || true
+	@echo
+	@echo "=== 公证票据 ==="
+	@xcrun stapler validate "$(APP)" 2>&1 || true
+
+## notary-setup: 把公证凭据存入钥匙串（只需执行一次）
+#
+# 需要：Apple ID、Team ID、App 专用密码
+# （在 https://appleid.apple.com 生成 App 专用密码，不是账号密码）
+notary-setup:
+	@if [ -z "$(APPLE_ID)" ] || [ -z "$(TEAM_ID)" ]; then \
+		echo "用法: make notary-setup APPLE_ID=you@example.com TEAM_ID=ABCDE12345"; \
+		echo "随后按提示输入 App 专用密码"; \
+		exit 1; \
+	fi
+	xcrun notarytool store-credentials "$(NOTARY_PROFILE)" \
+		--apple-id "$(APPLE_ID)" \
+		--team-id "$(TEAM_ID)" \
+		--password "$(APP_PASSWORD)"
+
+## notarize: 提交公证并装订票据（需先完成 notary-setup 与正式签名）
+notarize:
+	@echo "打包 ZIP 供公证..."
+	@rm -f dist/notarize.zip
+	@ditto -c -k --keepParent "$(APP)" dist/notarize.zip
+	@echo "提交公证（可能需要几分钟）..."
+	xcrun notarytool submit dist/notarize.zip \
+		--keychain-profile "$(NOTARY_PROFILE)" --wait
+	@echo "装订票据..."
+	xcrun stapler staple "$(APP)"
+	@rm -f dist/notarize.zip
+	@echo "公证完成，可用 make verify-sign 复核"
 
 ## test: 运行全部单元测试
 test:
