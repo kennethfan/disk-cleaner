@@ -252,8 +252,11 @@ func (m *treeModel) updateNode(id treeNodeID, branch bool, o fyne.CanvasObject) 
 	risk.Color = riskColor(row.item.Risk)
 	risk.Refresh()
 
-	// 永久删除项不可勾选。
-	if row.item.Permanent {
+	// 永久删除项与只读项都不可勾选。
+	//
+	// ReadOnly 用于"指定目录扫描"：用户可以浏览任意目录，
+	// 但删除仍受 guard 白名单约束，界面提前置灰避免误导。
+	if row.item.Permanent || row.item.ReadOnly {
 		chk.OnChanged = nil
 		chk.Disable()
 		chk.SetChecked(false)
@@ -392,7 +395,7 @@ func (m *treeModel) loadChildren(id treeNodeID, tree *widget.Tree) {
 				cid := childNodeID(it.Path)
 				it.Category = parentRow.item.Category
 				it.Risk = parentRow.item.Risk
-				m.rows[cid] = &treeRow{item: it, selectable: !it.Permanent}
+				m.rows[cid] = &treeRow{item: it, selectable: !it.Permanent && !it.ReadOnly}
 				m.categoryOf[cid] = parentRow.item.Category
 				ids = append(ids, cid)
 			}
@@ -425,7 +428,7 @@ func (m *treeModel) setCategoryItems(cat model.Category, items []model.Item) {
 	var ids []treeNodeID
 	for _, it := range items {
 		id := itemNodeID(it.Path)
-		m.rows[id] = &treeRow{item: it, selectable: !it.Permanent}
+		m.rows[id] = &treeRow{item: it, selectable: !it.Permanent && !it.ReadOnly}
 		m.categoryOf[id] = cat
 		ids = append(ids, id)
 	}

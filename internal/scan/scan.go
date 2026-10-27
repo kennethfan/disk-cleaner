@@ -11,6 +11,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/kennethfan/disk-cleaner/internal/exclude"
+	"github.com/kennethfan/disk-cleaner/internal/gate"
 	"github.com/kennethfan/disk-cleaner/internal/model"
 )
 
@@ -30,6 +32,12 @@ type Options struct {
 	Home string
 	// Concurrency 是并发扫描器数量，0 表示按 CPU 数自动取值。
 	Concurrency int
+	// Exclude 是排除规则匹配器。为 nil 表示不排除任何内容。
+	Exclude *exclude.Matcher
+	// Paths 非空时只扫描这些目录，忽略全部预设扫描器。
+	Paths []string
+	// Gate 是暂停门闩。为 nil 表示不可暂停（CLI 场景）。
+	Gate *gate.Gate
 }
 
 // DefaultOptions 返回推荐默认值。
@@ -44,7 +52,13 @@ func DefaultOptions() Options {
 
 // All 返回默认启用的全部扫描器。
 // 各扫描器在运行时自行探测目标是否存在，不存在的目标不会产生任何项。
+//
+// 指定了 Paths 时改用 TargetScanner，跳过全部预设扫描器——
+// 用户的意图是"只看这些目录"，不应混入其他结果。
 func All(opts Options) []Scanner {
+	if len(opts.Paths) > 0 {
+		return []Scanner{NewTargetScanner(opts.Paths, opts.LargeFileThreshold)}
+	}
 	return []Scanner{
 		NewUserCacheScanner(opts),
 		NewSystemCacheScanner(opts),
@@ -58,10 +72,13 @@ func All(opts Options) []Scanner {
 // ScanAll 并发执行全部扫描器并汇总结果。
 // 单个扫描器返回的错误被收集到 Report.Errors，不会中断整体扫描。
 func ScanAll(ctx context.Context, scanners []Scanner, opts Options) *model.Report {
-	report := &model.Report{ScannedAt: time.Now()}
+	report := &model.Report{ScannedAt: time.Now(), TargetPaths: opts.Paths}
 	if len(scanners) == 0 {
 		return report
 	}
+
+	// 把 Gate 注入 ctx，供各扫描器内部的遍历点查询。
+	ctx = withGate(ctx, opts.Gate)
 
 	limit := opts.Concurrency
 	if limit <= 0 {
@@ -80,6 +97,11 @@ func ScanAll(ctx context.Context, scanners []Scanner, opts Options) *model.Repor
 	sem := make(chan struct{}, limit)
 	results := make(chan result, len(scanners))
 
+	// 进度统计：以扫描器为粒度。
+	if opts.Gate != nil {
+		opts.Gate.SetTotal(len(scanners))
+	}
+
 	var wg sync.WaitGroup
 	for _, sc := range scanners {
 		wg.Add(1)
@@ -88,7 +110,19 @@ func ScanAll(ctx context.Context, scanners []Scanner, opts Options) *model.Repor
 			sem <- struct{}{}
 			defer func() { <-sem }()
 
+			// 每个扫描器开跑前先过闸门：暂停时在此阻塞，
+			// 已启动的扫描器也会在其内部遍历点阻塞。
+			if opts.Gate != nil {
+				if err := opts.Gate.Wait(ctx); err != nil {
+					results <- result{err: err, sc: s}
+					return
+				}
+			}
+
 			items, err := s.Scan(ctx)
+			if opts.Gate != nil {
+				opts.Gate.MarkDone()
+			}
 			results <- result{items: items, err: err, sc: s}
 		}(sc)
 	}
@@ -109,6 +143,16 @@ func ScanAll(ctx context.Context, scanners []Scanner, opts Options) *model.Repor
 	}
 
 	report.Items = dedupeByPath(report.Items)
+
+	// 排除过滤统一放在这里，而不是让每个扫描器各写一遍，
+	// 保证"排除规则对所有扫描器一致生效"。
+	if opts.Exclude != nil && !opts.Exclude.Empty() {
+		kept, count, bytes := opts.Exclude.Filter(report.Items)
+		report.Items = kept
+		report.ExcludedCount = count
+		report.ExcludedBytes = bytes
+	}
+
 	report.Finalize()
 	return report
 }
@@ -178,6 +222,9 @@ func moreSpecific(a, b model.Item) bool {
 
 // dirSize 递归统计目录占用的字节数。
 // 遇到无权限的子目录时跳过而非中断，保证在受保护目录上也能返回部分结果。
+//
+// 这是整个扫描中最耗时的环节，因此每个条目都过一次检查点，
+// 保证暂停能及时生效。
 func dirSize(ctx context.Context, root string) (int64, error) {
 	var total int64
 	err := filepath.Walk(root, func(path string, info os.FileInfo, err error) error {
@@ -191,11 +238,12 @@ func dirSize(ctx context.Context, root string) (int64, error) {
 			}
 			return nil
 		}
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		default:
+
+		// 暂停/取消检查点。
+		if cerr := checkpoint(ctx); cerr != nil {
+			return cerr
 		}
+
 		if info.Mode().IsRegular() {
 			total += info.Size()
 		}

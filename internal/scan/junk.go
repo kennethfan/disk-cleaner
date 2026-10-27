@@ -68,10 +68,8 @@ func (s *JunkScanner) staleDownloads(ctx context.Context) []model.Item {
 		return nil
 	}
 	for _, e := range entries {
-		select {
-		case <-ctx.Done():
+		if cerr := checkpoint(ctx); cerr != nil {
 			return items
-		default:
 		}
 		info, err := e.Info()
 		if err != nil || info.IsDir() {

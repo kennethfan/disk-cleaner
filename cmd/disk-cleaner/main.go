@@ -67,16 +67,26 @@ func usage() {
 scan 选项:
   --large <MiB>   大文件阈值，默认 500
   --json          以 JSON 输出
+  --path <目录>   只扫描指定目录，可重复。指定后忽略预设扫描器
+  --exclude <规则> 额外排除规则，可重复。与配置文件中的规则叠加
 
 clean 选项:
   --category <名> 只清理指定类别，可重复。默认不选任何类别（必须先指定）
   --yes           跳过交互确认（危险，仅用于脚本）
   --dry-run       只打印将要执行的动作，不实际移动文件
 
+排除规则支持三种写法（写在 ~/.config/disk-cleaner/config.yaml 或 --exclude）:
+  ~/Library/Caches/JetBrains   绝对路径，该目录及其全部子项都排除
+  node_modules                 目录名，排除任意层级中同名的目录
+  "*.log"                      通配符，匹配文件名
+
 示例:
   disk-cleaner gui
   disk-cleaner scan
   disk-cleaner scan --large 1024
+  disk-cleaner scan --path ~/Downloads
+  disk-cleaner scan --path ~/Downloads --path ~/Movies
+  disk-cleaner scan --exclude node_modules --exclude "*.log"
   disk-cleaner clean --category 用户缓存 --dry-run
   disk-cleaner clean --category 开发缓存
 `)
@@ -96,12 +106,24 @@ func runScan(args []string) error {
 	fs := flag.NewFlagSet("scan", flag.ExitOnError)
 	largeMiB := fs.Int64("large", 500, "大文件阈值 (MiB)")
 	asJSON := fs.Bool("json", false, "以 JSON 输出")
+	var paths multiFlag
+	fs.Var(&paths, "path", "只扫描指定目录，可重复")
+	var extraExclude multiFlag
+	fs.Var(&extraExclude, "exclude", "额外排除规则（叠加配置文件），可重复")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
 
 	opts := scan.DefaultOptions()
 	opts.LargeFileThreshold = *largeMiB << 20
+	opts.Paths = paths
+
+	// 排除规则 = 配置文件中的规则 + 命令行追加的规则。
+	matcher, warn := buildExcludeMatcher(extraExclude)
+	if warn != "" {
+		fmt.Fprintf(os.Stderr, "警告: %s\n", warn)
+	}
+	opts.Exclude = matcher
 
 	ctx, cancel := newContext()
 	defer cancel()
@@ -132,6 +154,14 @@ func printReport(r *model.Report) {
 
 	fmt.Printf("\n扫描完成，共发现 %d 项，合计 %s\n", len(r.Items), model.HumanBytes(r.TotalBytes))
 	fmt.Printf("扫描时间: %s\n", r.ScannedAt.Format("2006-01-02 15:04:05"))
+
+	// 明确告知排除规则生效了，避免用户误以为扫描漏掉了内容。
+	if r.ExcludedCount > 0 {
+		fmt.Printf("已排除 %d 项（%s）\n", r.ExcludedCount, model.HumanBytes(r.ExcludedBytes))
+	}
+	if len(r.TargetPaths) > 0 {
+		fmt.Printf("指定目录扫描: %s（仅可查看，不可清理）\n", strings.Join(r.TargetPaths, ", "))
+	}
 
 	for _, cat := range order {
 		g, ok := groups[cat]
@@ -186,6 +216,13 @@ func runClean(args []string) error {
 
 	opts := scan.DefaultOptions()
 	opts.LargeFileThreshold = *largeMiB << 20
+
+	// clean 也必须应用同一套排除规则，否则"排除掉的路径"仍会被删除。
+	matcher, warn := buildExcludeMatcher(nil)
+	if warn != "" {
+		fmt.Fprintf(os.Stderr, "警告: %s\n", warn)
+	}
+	opts.Exclude = matcher
 
 	ctx, cancel := newContext()
 	defer cancel()

@@ -61,6 +61,10 @@ type Item struct {
 	// Permanent 为 true 表示该项无法"移入废纸篓"（例如它本身就在废纸篓里），
 	// 只能永久删除。界面必须据此给出更强的二次确认。
 	Permanent bool
+	// ReadOnly 为 true 表示该项仅可查看、不可勾选清理。
+	// 用于"指定目录扫描"：用户可以浏览任意目录，但删除仍受
+	// guard 白名单约束，界面提前置灰避免误导。
+	ReadOnly bool
 	// Note 是给用户看的补充说明，可为空。
 	Note string
 }
@@ -83,6 +87,12 @@ type Report struct {
 	Errors     []ScanError
 	TotalBytes int64
 	ScannedAt  time.Time
+	// ExcludedCount / ExcludedBytes 记录被排除规则过滤掉的项数与体积。
+	// 界面据此提示"已排除 N 项"，让用户知道排除列表确实生效了。
+	ExcludedCount int
+	ExcludedBytes int64
+	// TargetPaths 非空表示本次是"指定目录扫描"，这些项仅可查看。
+	TargetPaths []string
 }
 
 // Finalize 按大小降序排序并汇总总字节数。ScanAll 在返回前调用。

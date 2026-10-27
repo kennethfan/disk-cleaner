@@ -55,10 +55,8 @@ func (s *LargeFileScanner) Scan(ctx context.Context) ([]model.Item, error) {
 		if !pathExists(root) {
 			continue
 		}
-		select {
-		case <-ctx.Done():
-			return items, ctx.Err()
-		default:
+		if cerr := checkpoint(ctx); cerr != nil {
+			return items, cerr
 		}
 
 		filepath.Walk(root, func(path string, info os.FileInfo, err error) error {
@@ -68,10 +66,8 @@ func (s *LargeFileScanner) Scan(ctx context.Context) ([]model.Item, error) {
 				}
 				return nil
 			}
-			select {
-			case <-ctx.Done():
-				return ctx.Err()
-			default:
+			if cerr := checkpoint(ctx); cerr != nil {
+				return cerr
 			}
 			if info.IsDir() {
 				return nil

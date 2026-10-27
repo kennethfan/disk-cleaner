@@ -7,6 +7,7 @@ import (
 	"sort"
 	"sync"
 
+	"github.com/kennethfan/disk-cleaner/internal/exclude"
 	"github.com/kennethfan/disk-cleaner/internal/model"
 )
 
@@ -15,11 +16,22 @@ import (
 // 与 Scanner 的区别：Scanner 一次性产出全部可清理项；
 // ChildScanner 只在用户展开某个节点时调用，避免启动时遍历
 // 上百个子目录（实测 ~/Library/Caches 有 104 项、~/Downloads 163 项）。
-type ChildScanner struct{}
+type ChildScanner struct {
+	// exclude 为 nil 时不排除任何子项。
+	exclude *exclude.Matcher
+}
 
 // NewChildScanner 创建子项扫描器。
 func NewChildScanner() *ChildScanner {
 	return &ChildScanner{}
+}
+
+// NewChildScannerWithExclude 创建带排除规则的子项扫描器。
+//
+// 排除规则必须在子项展开时也生效，否则被排除的目录虽然不出现在
+// 扫描结果里，展开父目录时仍会重新冒出来。
+func NewChildScannerWithExclude(m *exclude.Matcher) *ChildScanner {
+	return &ChildScanner{exclude: m}
 }
 
 // maxChildren 限制单次返回的子项数量，避免超大目录拖垮界面。
@@ -49,10 +61,8 @@ func (s *ChildScanner) Children(ctx context.Context, dir string) ([]model.Item, 
 	sem := make(chan struct{}, 8) // 限制并发，避免 IO 打满
 
 	for i, e := range entries {
-		select {
-		case <-ctx.Done():
-			return items, ctx.Err()
-		default:
+		if cerr := checkpoint(ctx); cerr != nil {
+			return items, cerr
 		}
 
 		full := filepath.Join(dir, e.Name())
@@ -93,6 +103,13 @@ func (s *ChildScanner) Children(ctx context.Context, dir string) ([]model.Item, 
 			continue // 该子项读取失败，跳过
 		}
 		full := filepath.Join(dir, e.Name())
+
+		// 排除规则在此处也要生效：否则被排除的目录虽不在扫描结果里，
+		// 展开父目录时仍会重新冒出来。
+		if s.exclude != nil && s.exclude.Matches(full) {
+			continue
+		}
+
 		items = append(items, model.Item{
 			Path:        full,
 			DisplayName: e.Name(),
