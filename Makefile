@@ -6,7 +6,7 @@ BINARY      := disk-cleaner
 BUILD       := bin
 PKG         := ./cmd/disk-cleaner
 APP         := dist/磁盘清理.app
-VERSION := 0.4.0
+VERSION := 0.1.0
 
 # WebView 壳的绑定输出目录（由 wails3 生成，见 bindings 目标）。
 # 目录名带 v2：旧目录 bindings/ 下有被 WKWebView 持久缓存住的旧模块
