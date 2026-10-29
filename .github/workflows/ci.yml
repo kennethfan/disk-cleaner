@@ -1,0 +1,22 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  check:
+    # 必须用 macOS：代码直接依赖 darwin 的 syscall（Statfs、废纸篓），
+    # WebView 壳还要 cgo，Linux 上无法编译。
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      # 与本地 make check 完全一致：gofmt -l、go vet、go test
+      - name: 格式检查 + 静态检查 + 单元测试
+        run: make check
