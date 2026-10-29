@@ -1,0 +1,61 @@
+name: Release
+
+# 推 tag 即发版：v* 触发，通过 CI 同款闸门后创建 GitHub Release。
+# 不挂预编译产物（见 README「安装」：仅从源码构建），只发布源码与自动生成的说明。
+on:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  release:
+    # 与 CI 同理必须用 macOS：代码直接依赖 darwin syscall，WebView 壳还要 cgo。
+    runs-on: macos-latest
+    permissions:
+      contents: write
+
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          # gh release --generate-notes 需要完整 tag 历史才能算出与上个版本的差异
+          fetch-depth: 0
+
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      # .app 的 Info.plist 版本号来自 Makefile 的 VERSION，
+      # tag 与它不一致会发出一个版本号对不上的 release，这里直接拦住。
+      - name: 校验 tag 与 Makefile VERSION 一致
+        run: |
+          tag="${GITHUB_REF_NAME#v}"
+          make_version=$(sed -n 's/^VERSION := //p' Makefile)
+          if [ "$tag" != "$make_version" ]; then
+            echo "tag $GITHUB_REF_NAME 与 Makefile VERSION=$make_version 不一致" >&2
+            exit 1
+          fi
+          echo "版本一致: $make_version"
+
+      # 发布 commit 必须格式、vet、测试全过，与 CI 是同一道闸门。
+      - name: 格式检查 + 静态检查 + 单元测试
+        run: make check
+
+      # 不发产物，但 tag 指向的 commit 必须真能构建出二进制与 .app，
+      # 否则这个 tag 本身就是坏的。
+      - name: 构建二进制与 .app
+        run: |
+          make build
+          make app
+          ./bin/disk-cleaner help
+          test -x "dist/磁盘清理.app/Contents/MacOS/disk-cleaner"
+          codesign --verify --deep --strict "dist/磁盘清理.app"
+
+      - name: 创建 Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" \
+            --title "$GITHUB_REF_NAME" \
+            --verify-tag \
+            --generate-notes
