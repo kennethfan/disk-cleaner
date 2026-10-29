@@ -72,9 +72,13 @@ jobs:
           echo "asset=${asset}" >> "$GITHUB_OUTPUT"
           echo "arch=${arch}" >> "$GITHUB_OUTPUT"
 
-      # 说明正文用仓库内模板（安装、Gatekeeper 放行、环境要求），
-      # 变更列表由 git log 追加——本仓库直推、不走 PR，
-      # gh 的 --generate-notes 在这种历史下只剩一行 Full Changelog。
+      # 说明正文用仓库内模板（下载、Gatekeeper 放行、环境要求），末尾的
+      # 「本版变更」由 git log 追加——本仓库直推、不走 PR，gh 的
+      # --generate-notes 在这种历史下只剩一行 Full Changelog。
+      #
+      # 模板里的占位符（@VERSION@ / @ARCH@ / @ASSET@）分别换成 Makefile 版本号、
+      # 构建架构、附件文件名。模板文件只放正文：它会被原样发布，别在其中写
+      # 维护者注释，要写就写在这个 workflow 里。
       - name: 生成 Release 说明
         env:
           VERSION: ${{ steps.version.outputs.version }}
