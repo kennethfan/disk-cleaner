@@ -6,6 +6,7 @@ package clean
 import (
 	"errors"
 	"fmt"
+	"os"
 	"path/filepath"
 
 	"github.com/kennethfan/disk-cleaner/internal/guard"
@@ -106,6 +107,38 @@ func (e *Engine) Run(items []model.Item) Result {
 		res.Outcomes = append(res.Outcomes, out)
 	}
 	return res
+}
+
+// Restore 把「移入废纸篓」的内容放回原位置。
+//
+// Move 与恢复是同一卷上的 rename，通常都成功；
+// 若原路径父目录已不存在则补建。只处理成功移入的项，
+// 被拒绝或失败的项目本来就没有移动，无需恢复。
+func (e *Engine) Restore(outcomes []Outcome) (restored, failed int) {
+	for _, o := range outcomes {
+		if o.Err != nil || o.Skipped || o.Dest == "" {
+			continue
+		}
+		if err := restorePath(o.Dest, o.Item.Path); err != nil {
+			failed++
+			continue
+		}
+		restored++
+	}
+	return restored, failed
+}
+
+// restorePath 把废弃篊内的落点放回原路径。
+func restorePath(dest, orig string) error {
+	if dir := filepath.Dir(orig); dir != "" {
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			return fmt.Errorf("还原父目录 %s: %w", dir, err)
+		}
+	}
+	if err := os.Rename(dest, orig); err != nil {
+		return fmt.Errorf("找回 %s: %w", dest, err)
+	}
+	return nil
 }
 
 // DefaultRoots 返回默认允许清理的根目录白名单。

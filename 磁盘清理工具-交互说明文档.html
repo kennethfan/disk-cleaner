@@ -1,0 +1,152 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>磁盘清理工具-交互说明文档</title>
+<style>
+:root{
+  --bg:#0f1115; --bg-soft:#151922; --bg-card:#171c26; --line:#242b38;
+  --fg:#e6e9ef; --fg-dim:#9aa4b8; --fg-mute:#6b7589;
+  --accent:#5b9dff; --accent-2:#7c6cff; --ok:#3ecf8e; --warn:#f0b429; --bad:#f2555a;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--fg);
+  font-family:-apple-system,BlinkMacSystemFont,"PingFang SC","Helvetica Neue","Microsoft YaHei",sans-serif;
+  font-size:15px;line-height:1.85;-webkit-font-smoothing:antialiased}
+.wrap{max-width:960px;margin:0 auto;padding:56px 28px 96px}
+h1{font-size:30px;line-height:1.4;margin:8px 0 18px;letter-spacing:.4px;font-weight:700}
+h2{font-size:22px;margin:52px 0 16px;padding:14px 0 12px 14px;border-left:3px solid var(--accent);
+   background:linear-gradient(90deg,rgba(91,157,255,.10),transparent 70%);border-radius:0 6px 6px 0;font-weight:650}
+h3{font-size:17.5px;margin:34px 0 12px;color:#cfd8ea;font-weight:640}
+h4{font-size:15.5px;margin:24px 0 10px;color:#c2cadb;font-weight:640}
+p{margin:12px 0;color:#d5dbe7}
+a{color:var(--accent);text-decoration:none}
+hr{border:0;border-top:1px solid var(--line);margin:40px 0}
+ul,ol{padding-left:22px;margin:12px 0}
+li{margin:6px 0;color:#d5dbe7}
+code{background:#1d2331;border:1px solid var(--line);border-radius:4px;
+  padding:1px 6px;font-size:13px;color:#9fd0ff;
+  font-family:"SF Mono",Menlo,Consolas,monospace}
+pre{background:#12161f;border:1px solid var(--line);border-radius:10px;
+  padding:18px 20px;overflow-x:auto;margin:18px 0;line-height:1.6}
+pre code{background:none;border:0;padding:0;color:#a8b6d0;font-size:12.5px}
+blockquote{margin:18px 0;padding:14px 20px;background:var(--bg-soft);
+  border-left:3px solid var(--accent-2);border-radius:0 8px 8px 0;color:#c3ccdf}
+blockquote p{margin:4px 0;color:#c3ccdf}
+strong{color:#fff;font-weight:650}
+table{border-collapse:collapse;width:100%;margin:18px 0;font-size:13.6px;
+  background:var(--bg-card);border:1px solid var(--line);border-radius:10px;overflow:hidden}
+th{background:#1b2130;color:#cdd6e8;text-align:left;padding:11px 14px;
+  font-weight:640;border-bottom:1px solid var(--line);white-space:nowrap}
+td{padding:10px 14px;border-bottom:1px solid #1e2532;color:#c8d0e0;vertical-align:top}
+tr:last-child td{border-bottom:0}
+tbody tr:hover{background:#1b2130}
+.tbl{overflow-x:auto;margin:18px 0}
+.tbl table{margin:0}
+.meta{color:var(--fg-mute);font-size:13px;margin-bottom:6px}
+.footnote{margin-top:48px;padding-top:18px;border-top:1px solid var(--line);
+  color:var(--fg-mute);font-size:12.5px;font-style:italic}
+@media (max-width:640px){
+  .wrap{padding:32px 16px 64px}
+  h1{font-size:23px} h2{font-size:19px} h3{font-size:16px}
+  table{font-size:12.4px} th,td{padding:8px 10px}
+}
+</style>
+</head>
+<body>
+<div class="wrap">
+<h1>净盘 CleanDisk — macOS 磁盘清理工具交互说明文档</h1>
+<blockquote><p>版本：v1.0 ｜ 更新日期：2026-10-29 ｜ 配套产物：<code>磁盘清理工具-UI交互原型.html</code>（交互式原型，本档描述其全部交互行为）</p><p>视觉基调：浅色 macOS 原生风（#f5f5f7 窗体 / 系统蓝 #0a84ff 主色 / SF 系字体栈）</p></blockquote>
+<hr>
+<h2>一、产品定位与设计原则</h2>
+<p><strong>产品定位</strong>：macOS 磁盘空间清理工具。核心价值是「看得见的信任感」——用户敢把删除操作交给它。</p>
+<p><strong>四条安全交互原则</strong>（贯穿全部流程）：</p>
+<ol><li><strong>只读扫描</strong> — 扫描阶段不修改任何文件，UI 在侧边栏与扫描页常驻提示</li><li><strong>废纸篓语义</strong> — 所有「清理」操作移入废纸篓而非直接删除；30 天内可恢复；磁盘可用空间在清空废纸篓前<strong>不会</strong>变化（数字如实反映，不做假释放）</li><li><strong>二次确认</strong> — 执行清理前列出完整清单与合计大小，明确告知后果与可恢复性</li><li><strong>可逆性</strong> — 清理完成后提供「撤销本次清理」入口，从废纸篓放回原位置</li></ol>
+<hr>
+<h2>二、信息架构</h2>
+<pre><code>窗口（macOS 红绿灯标题栏「净盘 CleanDisk」）
+├── 侧边栏
+│   ├── 磁盘信息卡（迷你环形图 + 磁盘名 + 可用/总容量）
+│   ├── 空间管理
+│   │   ├── 概览
+│   │   ├── 清理建议（角标 = 分类数）
+│   │   └── 大文件（角标 = 文件数）
+│   └── 安全
+│       ├── 排除列表（角标 = 规则数）
+│       └── 安全承诺文案（只读 / 废纸篓 / 二次确认）
+└── 主内容区（随导航切换的 5 个视图 + 2 个流程态）
+    ├── 概览（默认）
+    ├── 扫描中（流程态）
+    ├── 清理建议
+    ├── 大文件
+    ├── 排除列表
+    ├── 清理进度（流程态）
+    └── 完成（流程态）</code></pre>
+<p><strong>导航规则</strong>：点击侧边栏项切换视图；当前项高亮（系统蓝浅底）；每页标题栏右上角提供「🔄 重新扫描」按钮（仅在已完成过扫描后显示）。</p>
+<hr>
+<h2>三、概览页</h2>
+<p><strong>首次进入（未扫描状态）</strong>：</p>
+<ul><li>大环形图呈灰色，中心显示「66.5% / 已使用 328.6 GB」（静态演示数据）</li><li>分类瓦片区显示占位文案「点击开始智能扫描以获取可清理项分析」</li><li>主操作：「✨ 开始智能扫描」大按钮 + 说明「只读扫描 · 不会改动任何文件 · 约 3 秒」</li></ul>
+<p><strong>扫描范围切换</strong>（扫描按钮上方）：</p>
+<ul><li>分段控件：<code>🌐 全盘扫描</code>（默认）/ <code>📁 指定目录</code></li><li>切到「指定目录」展开目录编辑行：输入框（支持 <code>~</code> 路径）+「＋ 添加」按钮</li><li>已添加目录显示为蓝色 chip（等宽字体），chip 上 × 可移除</li><li><strong>守卫逻辑</strong>：指定目录模式下未添加任何目录时，扫描按钮禁用并变为「⚠︎ 请先添加扫描目录」</li><li>范围选择持久化，重开应用不丢失</li></ul>
+<p><strong>分类瓦片</strong>（扫描完成后渲染）：每类显示彩色标识、名称、大小、项目数与属性标签（绿色「推荐清理」/ 橙色「需人工确认」）；点击瓦片跳转清理建议页。</p>
+<p><strong>环形图</strong>：扫描完成后由灰色变为按分类占比着色的分段环。</p>
+<hr>
+<h2>四、扫描流程</h2>
+<ol><li>点击「开始智能扫描」→ 进入扫描中视图</li><li>进度环从 0% 匀速增长（约 3 秒），中心显示百分比；下方滚动显示当前扫描路径（指定目录模式下仅滚动范围内目录）；底部提示「正在以只读方式分析磁盘 · 范围：xxx · 已按排除列表跳过 N 个目录」</li><li>提供「取消」按钮，可随时中断返回概览</li><li>完成后 toast 提示：「扫描完成，发现 X 可清理空间（范围：…）· 已跳过 N 个排除目录」，自动跳转清理建议页</li><li>侧边栏「清理建议」「大文件」角标点亮，显示范围内实际项目数</li></ol>
+<hr>
+<h2>五、清理建议页（核心交互）</h2>
+<h3>5.1 分类卡片</h3>
+<ul><li>每类一张卡片：分类级复选框（圆形）、名称+属性标签、描述、大小、项目数、展开箭头</li><li>点击卡片头部<strong>展开/收起</strong>文件明细列表（箭头旋转 90° 反馈）</li><li>点击分类复选框 = <strong>全选/全不选该分类</strong>；部分选中时复选框内显示已选数字</li></ul>
+<h3>5.2 文件行</h3>
+<p>每行：行复选框（方形）｜图标｜文件名+完整路径｜未使用天数｜「🚫 排除」按钮｜大小。</p>
+<ul><li><strong>勾选</strong>：点击或 Space/Enter 键切换；选中项复选框变蓝打勾</li><li><strong>行内排除</strong>：悬停行时浮现「🚫 排除」按钮，点击将该文件<strong>所在目录</strong>加入排除列表，该文件立即从结果消失，分类大小/数量/汇总同步更新，toast 反馈「已排除目录 xxx，不再扫描」</li><li>范围外或已排除的文件不渲染；空分类显示「当前扫描范围内无此分类的文件」</li></ul>
+<h3>5.3 三级勾选联动</h3>
+<p>单文件勾选 → 分类勾选（显示部分选中数）→「全选推荐项」勾选，任一级操作实时向上/向下同步。</p>
+<h3>5.4 底部汇总栏</h3>
+<ul><li>勾选任意文件后从底部滑出（毛玻璃悬浮条）</li><li>左侧：「全选推荐项」开关；中间：<strong>已选合计大小（大字）+ 已选项目数</strong>；右侧：「取消选择」「🗑 安全清理」按钮</li><li>未选中任何项目时「安全清理」禁用</li></ul>
+<hr>
+<h2>六、大文件页</h2>
+<ul><li>表格：复选框｜文件名｜位置｜修改时间（N 天前）｜大小（右对齐、等宽数字）</li><li>按大小降序；悬停行高亮；支持多选</li><li>底部汇总栏显示「已选 N 个大文件 · 合计 X」+「🗑 移入废纸篓」按钮（未选时禁用）</li><li>范围外的大文件行隐藏，角标同步</li></ul>
+<hr>
+<h2>七、排除列表页</h2>
+<ul><li>顶部说明：「以下目录在扫描时将被完全跳过，不计入可清理空间。规则自动保存，长期生效。支持通配符 *」</li><li>添加行：路径输入框 +「＋ 加入排除」按钮（回车等效提交）</li><li>规则列表：🚫 图标｜路径（等宽字体）｜来源备注（「默认锁定」「手动添加 · 刚刚」「来自清理建议 · 刚刚」）｜操作</li><li><strong>默认规则</strong>（系统目录 <code>/System</code>、<code>com.apple.*</code> 容器）预置且锁定，按钮显示「默认」并禁用，防止误删</li><li>重复路径拦截提示「该路径已在排除列表中」；移除规则 toast「已移除排除规则，下次扫描生效」</li><li>规则持久化，角标实时更新</li></ul>
+<hr>
+<h2>八、清理确认弹窗</h2>
+<p><strong>触发</strong>：清理建议页「🗑 安全清理」或大文件页「🗑 移入废纸篓」。</p>
+<p><strong>内容</strong>（自上而下）：</p>
+<ol><li>橙色警示图标 ⚠️ + 标题「确认清理这些文件？」</li><li>副标题：共 N 个项目 · 合计 X。将移入废纸篓（非彻底删除），可随时恢复</li><li>清单摘要（按分类/逐文件列出名称与大小，可滚动）</li><li>绿色信任背书行：「🗑 移入废纸篓 · 30 天内可恢复 · 不会立即释放磁盘」</li><li>底部双按钮：「取消」（灰）｜「移入废纸篓」（红字）</li></ol>
+<p><strong>交互</strong>：弹窗淡入 + 缩放动画；点击遮罩或按 Esc 关闭；确认后进入清理进度。</p>
+<hr>
+<h2>九、清理进度与完成页</h2>
+<p><strong>清理进度</strong>：</p>
+<ul><li>渐变进度条匀速推进</li><li>下方清单逐项显示本次处理的文件，完成一项点亮绿色 ✓（文件名由灰变黑）</li></ul>
+<p><strong>完成页</strong>：</p>
+<ul><li>绿色对勾图标（弹跳入场动画）+「清理完成」</li><li>大字显示本次释放量「+X GB」</li><li>说明文案：「所有文件已移入<strong>废纸篓</strong>，未从磁盘删除。清空废纸篓前可随时打开恢复；30 天后系统将自动彻底清除」</li><li>双按钮：「↩︎ 撤销本次清理」（从废纸篓放回，结果页恢复原状并 toast 确认）｜「查看最新概览」（跳回概览页）</li></ul>
+<hr>
+<h2>十、全局交互规范</h2>
+<div class='tbl'><table><thead><tr><th>维度</th><th>规范</th></tr></thead><tbody><tr><td>反馈</td><td>所有增删改操作均有 toast 反馈（顶部居中滑入，2.6 秒自动消失）</td></tr><tr><td>键盘可达</td><td>全部复选框/卡片/按钮支持 Tab 聚焦 + Space/Enter 激活；Esc 关闭弹窗</td></tr><tr><td>焦点可见</td><td><code>focus-visible</code> 蓝色焦点环，不因鼠标点击误触发</td></tr><tr><td>无障碍</td><td>复选框带 <code>role="checkbox"</code> + <code>aria-checked</code>；图标按钮有 <code>aria-label</code>；弹窗 <code>role="dialog"</code> + <code>aria-modal</code></td></tr><tr><td>动效</td><td>统一 180ms 缓动；视图切换淡入上移；卡片悬停上浮 2px；不使用夸张动画</td></tr><tr><td>数字</td><td>容量/计数一律等宽数字（tabular-nums），避免跳动</td></tr><tr><td>响应式</td><td>≤760px 隐藏侧边栏，单栏布局</td></tr><tr><td>持久化</td><td>排除列表（<code>cleandisk_excludes_v1</code>）与扫描范围（<code>cleandisk_scope_v1</code>）写入 localStorage；勾选状态为会话级，不持久化</td></tr></tbody></table></div>
+<hr>
+<h2>十一、核心状态流转</h2>
+<pre><code>概览（未扫描）
+   │ 点击「开始智能扫描」
+   ▼
+扫描中 ──取消──▶ 概览
+   │ 完成（自动）
+   ▼
+清理建议 ◀──导航──▶ 大文件 / 排除列表 / 概览
+   │ 勾选 → 点「安全清理」
+   ▼
+确认弹窗 ──取消──▶ 返回原页
+   │ 确认
+   ▼
+清理进度 ──完成──▶ 完成页 ──撤销──▶ 清理建议（恢复原状）
+                └─查看概览─▶ 概览（可重新扫描）</code></pre>
+<p><strong>范围与排除的叠加关系</strong>：<code>实际扫描范围 = 指定目录（若启用）∩ 未命中排除规则</code>；两级过滤在扫描完成时统一计算，结果页、角标、汇总口径完全一致。</p>
+<hr>
+<h2>十二、原型边界说明</h2>
+<ol><li>文件/目录数据为<strong>演示数据</strong>（Demo fixture），非真实磁盘内容；扫描动画为模拟</li><li>指定目录的路径匹配采用「<code>~</code> 展开 + 前缀匹配」的简化实现；正式实现建议基于文件系统遍历</li><li>「清理」在原型中仅更新视觉状态（行灰显/移除），磁盘数字保持不变——如实模拟废纸篓语义</li><li>通配符匹配（<code>*</code>）在原型中仅作规则文案展示，未实现匹配引擎</li><li>localStorage 数据可在浏览器开发者工具中清除以重置演示状态</li></ol>
+</div>
+</body>
+</html>

@@ -3,62 +3,54 @@ package ui
 import (
 	"testing"
 
-	"fyne.io/fyne/v2/test"
+	"github.com/kennethfan/disk-cleaner/internal/gate"
 )
 
 // TestPauseToggleSwitchesLabel 验证暂停按钮文案在「暂停/继续」之间切换。
 func TestPauseToggleSwitchesLabel(t *testing.T) {
-	test.NewApp()
-	w := test.NewWindow(nil)
-	defer w.Close()
+	s, cleanup := newTestShell(t)
+	defer cleanup()
 
-	v := &mainView{win: w, ctrl: &Controller{}}
-	w.SetContent(v.build())
+	g := s.ctrl.NewGate()
 
-	g := v.ctrl.NewGate()
-
-	if v.paused {
+	if s.paused {
 		t.Error("初始不应处于暂停")
 	}
 
 	// 暂停
-	v.onTogglePause()
-	if !v.paused {
+	s.onTogglePause()
+	if !s.paused {
 		t.Error("点击后应进入暂停")
 	}
 	if !g.Paused() {
 		t.Error("Gate 应处于暂停")
 	}
-	if got := v.pauseBtn.Text; got != "继续" {
+	if got := s.scannerV.pauseBtn.Text; got != "继续" {
 		t.Errorf("按钮文案 = %q, 期望「继续」", got)
 	}
 
 	// 继续
-	v.onTogglePause()
-	if v.paused {
+	s.onTogglePause()
+	if s.paused {
 		t.Error("再次点击应退出暂停")
 	}
 	if g.Paused() {
 		t.Error("Gate 不应处于暂停")
 	}
-	if got := v.pauseBtn.Text; got != "暂停" {
+	if got := s.scannerV.pauseBtn.Text; got != "暂停" {
 		t.Errorf("按钮文案 = %q, 期望「暂停」", got)
 	}
 }
 
 // TestCancelScanSetsGateCanceled 验证取消按钮会终止门闩。
 func TestCancelScanSetsGateCanceled(t *testing.T) {
-	test.NewApp()
-	w := test.NewWindow(nil)
-	defer w.Close()
+	s, cleanup := newTestShell(t)
+	defer cleanup()
 
-	v := &mainView{win: w, ctrl: &Controller{}}
-	w.SetContent(v.build())
-
-	g := v.ctrl.NewGate()
+	g := s.ctrl.NewGate()
 	g.Pause()
 
-	v.onCancelScan()
+	s.onCancelScan()
 	if !g.Canceled() {
 		t.Error("Gate 应被取消")
 	}
@@ -92,83 +84,99 @@ func TestNewGateResetsCancelState(t *testing.T) {
 
 // TestPauseToggleWithoutGate 验证没有门闩时点击暂停不会 panic。
 func TestPauseToggleWithoutGate(t *testing.T) {
-	test.NewApp()
-	w := test.NewWindow(nil)
-	defer w.Close()
-
-	v := &mainView{win: w, ctrl: &Controller{}}
-	w.SetContent(v.build())
+	s, cleanup := newTestShell(t)
+	defer cleanup()
 
 	// 未调用 NewGate，CurrentGate 为 nil。
-	v.onTogglePause()
-	v.onCancelScan()
+	s.onTogglePause()
+	s.onCancelScan()
 	// 不 panic 即通过。
 }
 
-// TestStopProgressTickerIdempotent 验证重复停止不会 panic。
-func TestStopProgressTickerIdempotent(t *testing.T) {
-	v := &mainView{}
-	v.progressStop = make(chan struct{})
+// TestStopTickerIdempotent 验证重复停止不会 panic。
+func TestStopTickerIdempotent(t *testing.T) {
+	s, cleanup := newTestShell(t)
+	defer cleanup()
 
-	v.stopProgressTicker()
-	v.stopProgressTicker() // 第二次应安全
+	s.startTicker()
+	s.stopTicker()
+	s.stopTicker() // 第二次应安全
 }
 
-// TestPauseStopsProgressAnimation 验证暂停时进度条动画停止，
-// 恢复时重新启动。这是用户实际反馈的 bug：
-// ProgressBarInfinite 与扫描进度无关，不停的话暂停后它仍在动，
-// 视觉上误导用户以为扫描还在继续。
-func TestPauseStopsProgressAnimation(t *testing.T) {
-	test.NewApp()
-	w := test.NewWindow(nil)
-	defer w.Close()
+// TestScanProgressReflectsGate 验证扫描视图的百分比随 Gate 进度变化。
+//
+// 原先用无限循环动画，不反映真实进度。改为按扫描器完成比例驱动环形图。
+func TestScanProgressReflectsGate(t *testing.T) {
+	s, cleanup := newTestShell(t)
+	defer cleanup()
 
-	v := &mainView{win: w, ctrl: &Controller{}}
-	w.SetContent(v.build())
-	v.ctrl.NewGate()
+	g := s.ctrl.NewGate()
+	g.SetTotal(4)
 
-	// 模拟扫描中的状态：进度条可见且在跑。
-	v.progress.Show()
-	v.progress.Start()
-	if !v.progress.Running() {
-		t.Fatal("进度条应处于运行状态")
+	// 初始 0%。
+	s.scannerV.tick()
+	if got := s.scannerV.stat.Text; got != "0%" {
+		t.Errorf("初始进度文案 = %q, 期望 0%%", got)
 	}
 
-	// 暂停 → 动画必须停止。
-	v.onTogglePause()
-	if v.progress.Running() {
-		t.Error("暂停后进度条不应继续运行")
+	// 完成 2/4。
+	g.MarkDone()
+	g.MarkDone()
+	s.scannerV.tick()
+	if got := s.scannerV.stat.Text; got != "50%" {
+		t.Errorf("进度文案 = %q, 期望 50%%", got)
 	}
 
-	// 继续 → 动画恢复。
-	v.onTogglePause()
-	if !v.progress.Running() {
-		t.Error("恢复后进度条应重新运行")
+	// 全部完成。
+	g.MarkDone()
+	g.MarkDone()
+	s.scannerV.tick()
+	if got := s.scannerV.stat.Text; got != "100%" {
+		t.Errorf("进度文案 = %q, 期望 100%%", got)
 	}
 }
 
-// TestRescanRestartsAnimationAfterPauseEnd 验证上一次扫描在暂停中结束后，
-// 下一次扫描能重新启动动画（Stop 后 running=false，仅 Show 不够）。
-func TestRescanRestartsAnimationAfterPauseEnd(t *testing.T) {
-	test.NewApp()
-	w := test.NewWindow(nil)
-	defer w.Close()
+// TestPauseDoesNotChangeProgressValue 验证暂停不影响进度数值，
+// 只影响状态文案。
+func TestPauseDoesNotChangeProgressValue(t *testing.T) {
+	s, cleanup := newTestShell(t)
+	defer cleanup()
 
-	v := &mainView{win: w, ctrl: &Controller{}}
-	w.SetContent(v.build())
-	v.ctrl.NewGate()
+	g := s.ctrl.NewGate()
+	g.SetTotal(4)
+	g.MarkDone()
+	s.scannerV.tick()
 
-	// 模拟"暂停中结束扫描"：Stop 后 Hide。
-	v.progress.Stop()
-	v.progress.Hide()
-	if v.progress.Running() {
-		t.Fatal("Stop 后不应运行")
+	before := s.scannerV.stat.Text
+	s.onTogglePause()
+	after := s.scannerV.stat.Text
+
+	if before != after {
+		t.Errorf("暂停不应改变进度文案: %q -> %q", before, after)
+	}
+	if !g.Paused() {
+		t.Error("应处于暂停状态")
+	}
+	// 提示行随暂停切换（正常由 tick 刷新，这里手动触发验证文案）。
+	s.scannerV.refreshHint()
+	if got := s.scannerV.hint.Text; got != "已暂停 · 点击「继续」恢复扫描" {
+		t.Errorf("暂停提示 = %q", got)
+	}
+}
+
+// TestCancelNoticeWhilePaused 验证取消会解除暂停（唤醒等待者）。
+func TestCancelNoticeWhilePaused(t *testing.T) {
+	s, cleanup := newTestShell(t)
+	defer cleanup()
+
+	g := s.ctrl.NewGate()
+	g.Pause()
+	s.paused = true
+
+	s.onCancelScan()
+	if g.Paused() {
+		t.Error("取消应同时解除暂停")
 	}
 
-	// 新一轮扫描必须显式 Start。
-	v.progress.Show()
-	v.progress.Start()
-	if !v.progress.Running() {
-		t.Error("重新扫描时应启动动画")
-	}
+	var _ = gate.New // 引用包避免仅测试用导入被裁剪。
 }

@@ -11,39 +11,60 @@ import (
 	"github.com/kennethfan/disk-cleaner/internal/model"
 )
 
-// TestRenderMainView 渲染主界面并输出截图，用于人工核对布局。
+// TestRenderShellSnapshot 渲染整个界面并输出截图，用于人工核对布局。
 //
-// 该测试不依赖真实扫描结果：用构造的 Report 填充树，
+// 该测试不依赖真实扫描结果：用构造的 Report 填充各页，
 // 避免在沙箱环境中访问用户目录。未设置 UI_SNAPSHOT 时自动跳过。
-func TestRenderMainView(t *testing.T) {
+func TestRenderShellSnapshot(t *testing.T) {
 	out := os.Getenv("UI_SNAPSHOT")
 	if out == "" {
 		t.Skip("未设置 UI_SNAPSHOT，跳过截图")
 	}
 
 	test.NewApp()
+	test.ApplyTheme(t, newAppTheme())
 	w := test.NewWindow(nil)
 	defer w.Close()
-	w.Resize(fyne.NewSize(900, 620))
+	w.Resize(fyne.NewSize(1120, 740))
 
-	view := &mainView{win: w, ctrl: &Controller{}}
-	w.SetContent(view.build())
+	s := newAppShell(w, &Controller{})
 
-	view.report = sampleReport()
-	view.renderReport(view.report)
+	// 填充报告并切到清理建议页，勾选若干项展示汇总栏。
+	s.report = sampleReport()
+	s.refreshAllViews()
+	s.adviceV.setReport(s.report)
+	s.adviceV.selectAllRecommended(true)
+	s.switchView(viewAdvice)
 
-	// 勾选几项，让摘要与按钮显示已选状态。
-	view.model.mu.Lock()
-	n := 0
-	for _, row := range view.model.rows {
-		if row.selectable && n < 2 {
-			row.checked = true
-			n++
-		}
+	img := w.Canvas().Capture()
+	f, err := os.Create(out)
+	if err != nil {
+		t.Fatalf("创建截图文件: %v", err)
 	}
-	view.model.mu.Unlock()
-	view.tree.Refresh()
-	view.updateSummary()
+	defer f.Close()
+	if err := png.Encode(f, img); err != nil {
+		t.Fatalf("编码 PNG: %v", err)
+	}
+	t.Logf("截图已写入 %s", out)
+}
+
+// TestRenderOverviewSnapshot 渲染概览页截图（含环形图与分类瓦片）。
+func TestRenderOverviewSnapshot(t *testing.T) {
+	out := os.Getenv("UI_SNAPSHOT_OVERVIEW")
+	if out == "" {
+		t.Skip("未设置 UI_SNAPSHOT_OVERVIEW，跳过截图")
+	}
+
+	test.NewApp()
+	test.ApplyTheme(t, newAppTheme())
+	w := test.NewWindow(nil)
+	defer w.Close()
+	w.Resize(fyne.NewSize(1120, 740))
+
+	s := newAppShell(w, &Controller{})
+	s.report = sampleReport()
+	s.refreshAllViews()
+	s.switchView(viewOverview)
 
 	img := w.Canvas().Capture()
 	f, err := os.Create(out)

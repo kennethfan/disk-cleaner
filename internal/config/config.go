@@ -21,6 +21,9 @@ const FileName = "config.yaml"
 type Config struct {
 	// Exclude 是排除规则列表，语法见 exclude 包。
 	Exclude []string `yaml:"exclude"`
+	// ScanTargets 非空时表示"指定目录扫描"的范围，随配置持久化，
+	// 重开应用不丢失。空表示全盘扫描。
+	ScanTargets []string `yaml:"scan_targets"`
 }
 
 // DefaultPath 返回配置文件的标准位置。

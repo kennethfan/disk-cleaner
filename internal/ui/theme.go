@@ -46,17 +46,71 @@ func riskColor(r model.Risk) color.Color {
 	}
 }
 
-// riskBadge 返回带方块的等级标记，比纯文字更容易扫读。
+// riskBadge 返回风险等级的短标签。
+//
+// 只返回单字：胶囊本身已有底色区分等级，加圆点前缀反而在
+// 窄胶囊里挤不下（实测会被裁切）。
 func riskBadge(r model.Risk) string {
 	switch r {
 	case model.RiskLow:
-		return "● 低"
+		return "低"
 	case model.RiskMedium:
-		return "● 中"
+		return "中"
 	case model.RiskHigh:
-		return "● 高"
+		return "高"
 	default:
-		return "● 未知"
+		return "?"
+	}
+}
+
+// categoryColor 返回分类在瓦片/分段环中的标识色。
+// 与交互原型的分类色一一对应。
+func categoryColor(c model.Category) color.Color {
+	switch c {
+	case model.CategoryDevCache:
+		return color.NRGBA{R: 0xAF, G: 0x52, B: 0xDE, A: 0xFF} // 弥
+	case model.CategoryUserCache:
+		return color.NRGBA{R: 0x0A, G: 0x84, B: 0xFF, A: 0xFF} // 蓝
+	case model.CategorySystemCache:
+		return color.NRGBA{R: 0x8E, G: 0x8E, B: 0x93, A: 0xFF} // 灰
+	case model.CategoryLargeFile:
+		return color.NRGBA{R: 0x30, G: 0xB0, B: 0xC7, A: 0xFF} // 青
+	case model.CategoryJunk:
+		return color.NRGBA{R: 0xFF, G: 0x9F, B: 0x0A, A: 0xFF} // 橙
+	case model.CategorySnapshot:
+		return color.NRGBA{R: 0x5A, G: 0xC8, B: 0xFA, A: 0xFF} // 天蓝
+	default:
+		return colorMuted
+	}
+}
+
+// recommendBadge 返回分类的属性标签：全部低风险 → 推荐，否则需确认。
+func categoryTag(items []model.Item) (text string, col color.Color) {
+	for _, it := range items {
+		if it.Risk != model.RiskLow {
+			return "需人工确认", colWarn
+		}
+	}
+	return "推荐清理", colOK
+}
+
+// categoryDesc 返回分类的一句话描述，与原型文案一致。
+func categoryDesc(c model.Category) string {
+	switch c {
+	case model.CategoryDevCache:
+		return "Xcode DerivedData、npm / pip / Gradle 等本地缓存，可重新生成"
+	case model.CategoryUserCache:
+		return "各 App 的 Library/Caches 目录，重建后无影响"
+	case model.CategorySystemCache:
+		return "系统日志与诊断报告，通常可安全清理"
+	case model.CategoryLargeFile:
+		return "体积超过阈值的单个文件，请确认不再需要"
+	case model.CategoryJunk:
+		return "废纸篓与残留文件"
+	case model.CategorySnapshot:
+		return "APFS 本地快照"
+	default:
+		return ""
 	}
 }
 
@@ -78,4 +132,17 @@ func categoryIcon(c model.Category) fyne.Resource {
 	default:
 		return theme.FileIcon()
 	}
+}
+
+// themeColorForeground 返回主题前景色，供 canvas.Text 使用。
+func themeColorForeground() color.Color {
+	return theme.ForegroundColor()
+}
+
+// themeColorMuted 返回次要文字色：降低透明度，形成层级。
+func themeColorMuted() color.Color {
+	fg := theme.ForegroundColor()
+	r, g, b, _ := fg.RGBA()
+	// RGBA() 返回 16 位分量，右移 8 位取高字节。
+	return color.NRGBA{R: uint8(r >> 8), G: uint8(g >> 8), B: uint8(b >> 8), A: 0x99}
 }
