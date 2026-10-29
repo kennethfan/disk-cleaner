@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 
 	"github.com/kennethfan/disk-cleaner/internal/model"
 )
@@ -50,6 +51,7 @@ func (s *LargeFileScanner) Scan(ctx context.Context) ([]model.Item, error) {
 		return nil, nil
 	}
 	var items []model.Item
+	skips := homePrefixes(s.home, redLineHomeDirs)
 	for _, rel := range largeFileScanRoots {
 		root := filepath.Join(s.home, rel)
 		if !pathExists(root) {
@@ -70,6 +72,9 @@ func (s *LargeFileScanner) Scan(ctx context.Context) ([]model.Item, error) {
 				return cerr
 			}
 			if info.IsDir() {
+				if underAny(path, skips) || s.isAppSupportCacheSubdir(path) {
+					return filepath.SkipDir
+				}
 				return nil
 			}
 			if !info.Mode().IsRegular() || info.Size() < s.threshold {
@@ -93,6 +98,20 @@ func (s *LargeFileScanner) Scan(ctx context.Context) ([]model.Item, error) {
 		items = items[:maxLargeFiles]
 	}
 	return items, nil
+}
+
+// isAppSupportCacheSubdir 判断 path 是否是 <app>/<cache> 形式的应用缓存子目录。
+//
+// 这类目录已由 AppSupportCacheScanner 整体作为一个清理项；大文件扫描再列出
+// 其中的文件会造成父子重复计数（去重只按路径精确匹配）。
+func (s *LargeFileScanner) isAppSupportCacheSubdir(path string) bool {
+	root := filepath.Join(s.home, "Library", "Application Support")
+	rel, err := filepath.Rel(root, path)
+	if err != nil || strings.HasPrefix(rel, "..") {
+		return false
+	}
+	parts := strings.Split(rel, string(filepath.Separator))
+	return len(parts) == 2 && isCacheDirName(parts[1])
 }
 
 // mustRel 返回 path 相对 base 的路径，失败时退回文件名。

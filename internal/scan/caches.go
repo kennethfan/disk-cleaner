@@ -2,6 +2,7 @@ package scan
 
 import (
 	"context"
+	"os"
 	"path/filepath"
 
 	"github.com/kennethfan/disk-cleaner/internal/model"
@@ -31,11 +32,13 @@ func (s *UserCacheScanner) Scan(ctx context.Context) ([]model.Item, error) {
 		name string
 		note string
 	}{
-		{"Library/Caches", "用户缓存目录 (~/Library/Caches)", "各应用自动重建，可安全清理"},
-		{"Library/Logs", "用户日志 (~/Library/Logs)", "应用诊断日志，不影响功能"},
 		{"Library/Saved Application State", "应用保存状态", "窗口位置等状态信息，会重新生成"},
 	}
-	var items []model.Item
+	// ~/Library/Caches 与 ~/.cache 都按直接子目录拆分，让用户能按应用
+	// 单独清理。不产出父目录条目：父目录本身是 guard 的根，拒绝整目录删除，
+	// 列出来也只会变成只读项。
+	items := s.cacheChildren(ctx, "Library/Caches", devCacheRelPaths())
+	items = append(items, s.cacheChildren(ctx, ".cache", nil)...)
 	for _, t := range targets {
 		p := filepath.Join(s.home, t.rel)
 		if it, ok := makeItem(ctx, p, t.name, model.CategoryUserCache, model.RiskLow, t.note); ok {
@@ -45,13 +48,47 @@ func (s *UserCacheScanner) Scan(ctx context.Context) ([]model.Item, error) {
 	return items, nil
 }
 
-// SystemCacheScanner 扫描系统级缓存目录。
-// 部分子目录需要管理员权限，无权限时会被跳过。
-type SystemCacheScanner struct{}
+// cacheChildren 把某个缓存根目录的直接子目录各自作为一个清理项。
+//
+// rel 是相对主目录的缓存根（Library/Caches 或 .cache）；skip 非空时跳过
+// 其中由其它扫描器负责的子目录。只取目录（跳过散文件与符号链接），
+// 解析失败当作无内容。
+func (s *UserCacheScanner) cacheChildren(ctx context.Context, rel string, skip map[string]struct{}) []model.Item {
+	root := filepath.Join(s.home, rel)
+	entries, err := os.ReadDir(root)
+	if err != nil {
+		return nil
+	}
+	var items []model.Item
+	for _, e := range entries {
+		if !e.IsDir() {
+			continue
+		}
+		if _, ok := skip[rel+"/"+e.Name()]; ok {
+			continue
+		}
+		if cerr := checkpoint(ctx); cerr != nil {
+			return items
+		}
+		p := filepath.Join(root, e.Name())
+		if it, ok := makeItem(ctx, p, e.Name()+" 缓存", model.CategoryUserCache, model.RiskLow,
+			"~/"+rel+" 下的应用缓存，应用会自动重建"); ok {
+			items = append(items, it)
+		}
+	}
+	return items
+}
+
+// SystemCacheScanner 扫描系统级缓存与日志目录。
+// 系统路径需要管理员权限，无权限时会被跳过；~/Library/Logs 不需要 sudo，
+// 但按速查卡归入 E 类（系统缓存与日志），不与应用缓存混在一起。
+type SystemCacheScanner struct {
+	home string
+}
 
 // NewSystemCacheScanner 创建系统缓存扫描器。
 func NewSystemCacheScanner(opts Options) *SystemCacheScanner {
-	return &SystemCacheScanner{}
+	return &SystemCacheScanner{home: opts.Home}
 }
 
 // Name 实现 Scanner。
@@ -60,16 +97,25 @@ func (s *SystemCacheScanner) Name() string { return "系统缓存" }
 // Scan 实现 Scanner。
 func (s *SystemCacheScanner) Scan(ctx context.Context) ([]model.Item, error) {
 	targets := []struct {
+		rel  string // 相对主目录；为空表示 path 是绝对路径
 		path string
 		name string
 		note string
 	}{
-		{"/Library/Caches", "系统缓存 (/Library/Caches)", "系统级缓存，部分需管理员权限"},
-		{"/private/var/log/asl", "系统日志归档 (asl)", "旧版系统日志"},
+		{path: "/Library/Caches", name: "系统缓存 (/Library/Caches)", note: "系统级缓存，部分需管理员权限"},
+		{path: "/private/var/log/asl", name: "系统日志归档 (asl)", note: "旧版系统日志"},
+		{rel: "Library/Logs", name: "用户日志 (~/Library/Logs)", note: "应用诊断日志，删除后自动重建"},
 	}
 	var items []model.Item
 	for _, t := range targets {
-		if it, ok := makeItem(ctx, t.path, t.name, model.CategorySystemCache, model.RiskLow, t.note); ok {
+		p := t.path
+		if t.rel != "" {
+			if s.home == "" {
+				continue
+			}
+			p = filepath.Join(s.home, t.rel)
+		}
+		if it, ok := makeItem(ctx, p, t.name, model.CategorySystemCache, model.RiskLow, t.note); ok {
 			items = append(items, it)
 		}
 	}

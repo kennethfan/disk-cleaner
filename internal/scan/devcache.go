@@ -44,7 +44,9 @@ func devTargets() []devTarget {
 		// --- JS / Node ---
 		{".npm/_cacache", "npm 缓存 (~/.npm/_cacache)", model.RiskLow, "npm 包缓存，重新安装时按需下载", true},
 		{".yarn/cache", "Yarn 缓存", model.RiskLow, "Yarn 包缓存", true},
+		{"Library/Caches/Yarn", "Yarn 缓存 (~/Library/Caches/Yarn)", model.RiskLow, "Yarn 包缓存", true},
 		{".pnpm-store", "pnpm 存储", model.RiskLow, "pnpm 内容寻址存储", true},
+		{"Library/Caches/pnpm", "pnpm 缓存 (~/Library/Caches/pnpm)", model.RiskLow, "pnpm 包缓存 / store", true},
 		{".bun/install/cache", "Bun 缓存", model.RiskLow, "Bun 包缓存", true},
 
 		// --- JVM / Android ---
@@ -54,12 +56,32 @@ func devTargets() []devTarget {
 		// --- 其他语言生态 ---
 		{".cargo/registry", "Cargo registry 缓存", model.RiskLow, "Rust crate 缓存", true},
 		{"go/pkg/mod/cache/download", "Go 模块下载缓存", model.RiskLow, "Go module 压缩包缓存", true},
+		{"Library/Caches/go-build", "Go 编译缓存 (go-build)", model.RiskLow, "编译中间产物，重新编译即可生成", true},
+		{"Library/Caches/JetBrains", "JetBrains IDE 索引缓存", model.RiskLow, "IDE 索引，重开会重建", true},
 		{"Library/Caches/pip", "pip 缓存", model.RiskLow, "Python 包缓存", true},
-		{".cache", "通用 ~/.cache", model.RiskLow, "遵循 XDG 规范的通用缓存目录", true},
 
 		// --- 容器与虚拟化 ---
-		{"Library/Containers/com.docker.docker/Data/vms", "Docker 虚拟机数据", model.RiskHigh, "包含全部镜像与容器，删除即丢失", true},
+		{"Library/Containers/com.docker.docker/Data/vms", "Docker 虚拟机数据", model.RiskHigh,
+			"包含全部镜像与容器，整目录删除即丢失；清镜像请用 docker system prune -a", true},
 	}
+}
+
+// devCacheRelPaths 返回全部开发缓存目标的相对路径（相主目录）。
+//
+// ~/Library/Caches 拆分时用它跳过这些子目录：同一目录由开发缓存扫描器
+// 负责，避免被用户缓存与开发缓存重复统计（也避免重复遍历大目录）。
+func devCacheRelPaths() map[string]struct{} {
+	targets := devTargets()
+	paths := make(map[string]struct{}, len(targets))
+	for _, t := range targets {
+		paths[t.rel] = struct{}{}
+	}
+	return paths
+}
+
+// readonlyDevTargets 是仅展示、不可清理的目标：整目录删除会丢用户数据。
+var readonlyDevTargets = map[string]struct{}{
+	"Library/Containers/com.docker.docker/Data/vms": {},
 }
 
 // Scan 实现 Scanner。
@@ -76,6 +98,9 @@ func (s *DevCacheScanner) Scan(ctx context.Context) ([]model.Item, error) {
 		}
 		if t.dirOnly && !it.IsDir {
 			continue
+		}
+		if _, ro := readonlyDevTargets[t.rel]; ro {
+			it.ReadOnly = true
 		}
 		items = append(items, it)
 	}

@@ -75,6 +75,13 @@ var homeProtectedSuffixes = []string{
 	"Library/Mail",
 	"Library/Messages",
 	"Library/Safari",
+	// 浏览器用户数据（书签/密码/扩展）都在这里，删了等于重置浏览器。
+	// Chrome 的纯缓存位于 ~/Library/Caches/Google，不受此条影响。
+	"Library/Application Support/Google",
+	// iOS 设备备份，删了不可恢复。
+	"Library/Application Support/MobileSync",
+	// Docker 虚拟磁盘，含全部镜像与容器；只能经 docker system prune 清理。
+	"Library/Containers/com.docker.docker/Data/vms",
 	".ssh",
 	".gnupg",
 }

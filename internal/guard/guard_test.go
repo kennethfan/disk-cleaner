@@ -45,6 +45,12 @@ func TestCheckRejectsProtectedPaths(t *testing.T) {
 		{home + "/.ssh/id_rsa", ErrProtected},
 		{home + "/Library/Keychains/login.keychain-db", ErrProtected},
 		{home + "/Library/Mail", ErrProtected},
+		// 速查卡红线：浏览器用户数据、iOS 备份、Docker 虚拟磁盘。
+		{home + "/Library/Application Support/Google", ErrProtected},
+		{home + "/Library/Application Support/Google/Chrome/Default/History", ErrProtected},
+		{home + "/Library/Application Support/MobileSync/Backup", ErrProtected},
+		{home + "/Library/Containers/com.docker.docker/Data/vms", ErrProtected},
+		{home + "/Library/Containers/com.docker.docker/Data/vms/0/data.vmdk", ErrProtected},
 	}
 	for _, c := range cases {
 		if err := g.Check(c.path); !errors.Is(err, c.want) {
@@ -89,6 +95,9 @@ func TestCheckAllowsValidPaths(t *testing.T) {
 	cases := []string{
 		home + "/Library/Caches/com.apple.Safari",
 		home + "/Library/Developer/Xcode/DerivedData",
+		// Chrome 的纯缓存与 Slack 的 cache 子目录不属于红线，应继续可清理。
+		home + "/Library/Caches/Google",
+		home + "/Library/Application Support/Slack/Cache",
 		home + "/.npm/_cacache",
 	}
 	for _, c := range cases {

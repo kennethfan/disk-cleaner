@@ -62,6 +62,8 @@ func All(opts Options) []Scanner {
 	return []Scanner{
 		NewUserCacheScanner(opts),
 		NewSystemCacheScanner(opts),
+		NewContainerCacheScanner(opts),
+		NewAppSupportCacheScanner(opts),
 		NewDevCacheScanner(opts),
 		NewLargeFileScanner(opts),
 		NewJunkScanner(opts),

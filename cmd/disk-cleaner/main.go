@@ -9,6 +9,7 @@ import (
 	"context"
 	"flag"
 	"fmt"
+	"io"
 	"os"
 	"os/signal"
 	"sort"
@@ -16,6 +17,7 @@ import (
 	"syscall"
 
 	"github.com/kennethfan/disk-cleaner/internal/clean"
+	"github.com/kennethfan/disk-cleaner/internal/controller"
 	"github.com/kennethfan/disk-cleaner/internal/guard"
 	"github.com/kennethfan/disk-cleaner/internal/model"
 	"github.com/kennethfan/disk-cleaner/internal/scan"
@@ -131,15 +133,44 @@ func runScan(args []string) error {
 	fmt.Fprintln(os.Stderr, "正在扫描……")
 	report := scan.ScanAll(ctx, scan.All(opts), opts)
 
+	// 与 GUI 同一口径：guard 不允许清理的项标为只读。
+	// 否则预览会把它们算进可清理范围，clean 时才被 guard 静默跳过。
+	if home, err := os.UserHomeDir(); err == nil {
+		if g, err := guard.New(clean.DefaultRoots(home), home); err == nil {
+			controller.MarkUncleanable(g, report)
+		}
+	}
+
 	if *asJSON {
 		return printJSON(report)
 	}
-	printReport(report)
+	printReport(os.Stdout, report)
 	return nil
 }
 
+// directlyCleanable 判断该项是否能直接走清理流程。
+// 只读项受 guard 白名单约束，永久删除项需要 sudo 或专用流程，二者都不算。
+func directlyCleanable(it model.Item) bool {
+	return !it.ReadOnly && !it.Permanent
+}
+
+// cleanableStats 汇总可直接清理的项与被锁定的项。
+func cleanableStats(items []model.Item) (count int, bytes int64, lockedCount int, lockedBytes int64) {
+	for _, it := range items {
+		if directlyCleanable(it) {
+			count++
+			bytes += it.Size
+			continue
+		}
+		lockedCount++
+		lockedBytes += it.Size
+	}
+	return count, bytes, lockedCount, lockedBytes
+}
+
 // printReport 以人类可读格式打印扫描结果。
-func printReport(r *model.Report) {
+// 合计只算可直接清理的项：只读项与永久删除项单列，避免高估可回收空间。
+func printReport(w io.Writer, r *model.Report) {
 	groups := r.ByCategory()
 
 	// 固定类别顺序，保证输出稳定。
@@ -152,15 +183,19 @@ func printReport(r *model.Report) {
 		model.CategorySnapshot,
 	}
 
-	fmt.Printf("\n扫描完成，共发现 %d 项，合计 %s\n", len(r.Items), model.HumanBytes(r.TotalBytes))
-	fmt.Printf("扫描时间: %s\n", r.ScannedAt.Format("2006-01-02 15:04:05"))
+	_, cleanBytes, lockedCount, lockedBytes := cleanableStats(r.Items)
+	fmt.Fprintf(w, "\n扫描完成，共发现 %d 项，可清理 %s\n", len(r.Items), model.HumanBytes(cleanBytes))
+	if lockedCount > 0 {
+		fmt.Fprintf(w, "另有 %d 项只读或需专用流程，未计入合计（%s）\n", lockedCount, model.HumanBytes(lockedBytes))
+	}
+	fmt.Fprintf(w, "扫描时间: %s\n", r.ScannedAt.Format("2006-01-02 15:04:05"))
 
 	// 明确告知排除规则生效了，避免用户误以为扫描漏掉了内容。
 	if r.ExcludedCount > 0 {
-		fmt.Printf("已排除 %d 项（%s）\n", r.ExcludedCount, model.HumanBytes(r.ExcludedBytes))
+		fmt.Fprintf(w, "已排除 %d 项（%s）\n", r.ExcludedCount, model.HumanBytes(r.ExcludedBytes))
 	}
 	if len(r.TargetPaths) > 0 {
-		fmt.Printf("指定目录扫描: %s（仅可查看，不可清理）\n", strings.Join(r.TargetPaths, ", "))
+		fmt.Fprintf(w, "指定目录扫描: %s（仅可查看，不可清理）\n", strings.Join(r.TargetPaths, ", "))
 	}
 
 	for _, cat := range order {
@@ -168,16 +203,41 @@ func printReport(r *model.Report) {
 		if !ok || len(g.Items) == 0 {
 			continue
 		}
-		fmt.Printf("\n== %s ==  合计 %s\n", cat, model.HumanBytes(g.Bytes))
+
+		var catClean int64
+		var catLocked int
+		var catLockedBytes int64
 		for _, it := range g.Items {
-			marker := ""
-			if it.Permanent {
-				marker = " [永久删除]"
+			if directlyCleanable(it) {
+				catClean += it.Size
+				continue
 			}
-			fmt.Printf("  %-10s %-9s %s%s\n",
+			catLocked++
+			catLockedBytes += it.Size
+		}
+
+		header := fmt.Sprintf("\n== %s ==  可清理 %s", cat, model.HumanBytes(catClean))
+		if catLocked > 0 {
+			header += fmt.Sprintf("（另 %d 项不可直接清理，%s）", catLocked, model.HumanBytes(catLockedBytes))
+		}
+		fmt.Fprintln(w, header)
+
+		for _, it := range g.Items {
+			var marks []string
+			if it.Permanent {
+				marks = append(marks, "永久删除")
+			}
+			if it.ReadOnly {
+				marks = append(marks, "只读")
+			}
+			marker := ""
+			if len(marks) > 0 {
+				marker = " [" + strings.Join(marks, "] [") + "]"
+			}
+			fmt.Fprintf(w, "  %-10s %-9s %s%s\n",
 				model.HumanBytes(it.Size), "风险:"+it.Risk.String(), it.DisplayName, marker)
 			if it.Note != "" {
-				fmt.Printf("             %s\n", it.Note)
+				fmt.Fprintf(w, "             %s\n", it.Note)
 			}
 		}
 	}

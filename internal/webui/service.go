@@ -215,11 +215,16 @@ func (s *Service) CancelScan() {
 
 // FileView 是一条可清理项的前端视图。
 type FileView struct {
-	Key       string `json:"key"`
-	N         string `json:"n"` // 展示名
-	P         string `json:"p"` // 路径（绝对）
-	S         int64  `json:"s"` // 字节数
-	Note      string `json:"note"`
+	Key  string `json:"key"`
+	N    string `json:"n"` // 展示名
+	P    string `json:"p"` // 路径（绝对）
+	S    int64  `json:"s"` // 字节数
+	Note string `json:"note"`
+	// Risk 是单项风险等级（0 低 / 1 中 / 2 高），RiskLabel 是它的中文标签。
+	// 分类级的 safe 只决定「推荐 / 需确认」，同一分类里仍有黄区条目，
+	// 因此必须把单项风险透传给前端，「全选推荐项」据此跳过中高风险。
+	Risk      int    `json:"risk"`
+	RiskLabel string `json:"riskLabel"`
 	Permanent bool   `json:"permanent"`
 	ReadOnly  bool   `json:"readOnly"`
 	IsDir     bool   `json:"isDir"`
@@ -252,8 +257,8 @@ var catMeta = map[model.Category]struct {
 	id, name, color, icon, desc string
 	safe                        bool
 }{
-	model.CategoryUserCache:   {"app", "应用缓存", "#0a84ff", "📦", "各 App 的 Library/Caches 目录，重建后无影响", true},
-	model.CategorySystemCache: {"log", "系统日志与诊断", "#8e8e93", "📄", "统一日志归档与崩溃报告，删除后自动重建", true},
+	model.CategoryUserCache:   {"app", "应用缓存", "#0a84ff", "📦", "Library/Caches、容器内缓存与 App 的 Cache 子目录，重建后无影响", true},
+	model.CategorySystemCache: {"log", "系统日志与诊断", "#8e8e93", "📄", "系统缓存与日志；系统路径需 sudo，用户日志可直接清理", false},
 	model.CategoryDevCache:    {"dev", "开发缓存", "#af52de", "🛠️", "Xcode DerivedData、npm / pip / Gradle 本地缓存", true},
 	model.CategoryLargeFile:   {"large", "大文件", "#30b0c7", "🗂️", "超过阈值的单个大文件，需人工确认", false},
 	model.CategoryJunk:        {"junk", "垃圾文件", "#ff9f0a", "🗑️", ".DS_Store、失效日志等杂项", false},
@@ -350,6 +355,8 @@ func (s *Service) fileView(k string, it model.Item) FileView {
 		P:         it.Path,
 		S:         it.Size,
 		Note:      it.Note,
+		Risk:      int(it.Risk),
+		RiskLabel: it.Risk.String(),
 		Permanent: it.Permanent,
 		ReadOnly:  it.ReadOnly,
 		IsDir:     it.IsDir,
@@ -545,21 +552,51 @@ func statfs(path string) (total, used, free int64, ok bool) {
 }
 
 // volumeLabel 返回包含 path 的卷的展示名。
-// APFS 在 Catalina 后把数据卷挂到 /System/Volumes/...，
-// 根卷统一显示「Macintosh HD」，其余显示挂载点末段。
+//
+// APFS 在 Catalina 之后把数据卷挂在 /System/Volumes/Data，而用户的主目录
+// 正位于该卷：直接取挂载点末段会得到「Data」，这不是用户认得的磁盘名。
+// 因此凡是系统内部的挂载点，都改用启动磁盘（根卷）的名字。
 func volumeLabel(path string) string {
 	var st syscall.Statfs_t
 	if err := syscall.Statfs(path, &st); err != nil {
 		return "磁盘"
 	}
-	mnt := int8SliceToString(st.Mntonname[:])
-	if mnt == "" || mnt == "/" {
-		return "Macintosh HD"
+	return displayVolumeName(int8SliceToString(st.Mntonname[:]))
+}
+
+// displayVolumeName 把挂载点转成展示用的卷名。
+func displayVolumeName(mnt string) string {
+	if isSystemMount(mnt) {
+		return startupVolumeName()
 	}
 	if base := filepath.Base(mnt); base != "." && base != "/" {
 		return base
 	}
-	return mnt
+	return startupVolumeName()
+}
+
+// isSystemMount 判断挂载点是否是系统内部卷（根卷或 APFS 的 /System/Volumes/*）。
+func isSystemMount(mnt string) bool {
+	if mnt == "" || mnt == "/" {
+		return true
+	}
+	return strings.HasPrefix(mnt, "/System/Volumes/")
+}
+
+// startupVolumeName 返回启动磁盘的展示名。
+//
+// statfs 只给挂载点、不给卷名；根卷的挂载点是「/」，此时回退到 macOS
+// 默认的启动磁盘名，与 Finder / 系统设置一致。
+func startupVolumeName() string {
+	var st syscall.Statfs_t
+	if err := syscall.Statfs("/", &st); err == nil {
+		if mnt := int8SliceToString(st.Mntonname[:]); !isSystemMount(mnt) {
+			if base := filepath.Base(mnt); base != "." && base != "/" {
+				return base
+			}
+		}
+	}
+	return "Macintosh HD"
 }
 
 // int8SliceToString 把定长 int8 数组（Statfs_t 的字符串字段）里 NUL 结尾的

@@ -10,7 +10,7 @@ import (
 	"github.com/kennethfan/disk-cleaner/internal/model"
 )
 
-// JunkScanner 扫描废纸篓、旧下载与 iOS 备份。
+// JunkScanner 扫描废纸篓与旧下载。
 type JunkScanner struct {
 	home string
 }
@@ -38,13 +38,6 @@ func (s *JunkScanner) Scan(ctx context.Context) ([]model.Item, error) {
 	if it, ok := makeItem(ctx, trashPath, "废纸篓 (~/.Trash)", model.CategoryJunk, model.RiskHigh,
 		"永久删除，不可恢复"); ok {
 		it.Permanent = true
-		items = append(items, it)
-	}
-
-	// iOS 设备备份。
-	backup := filepath.Join(s.home, "Library/Application Support/MobileSync/Backup")
-	if it, ok := makeItem(ctx, backup, "iOS 设备备份", model.CategoryJunk, model.RiskHigh,
-		"删除后需重新连接设备备份"); ok {
 		items = append(items, it)
 	}
 

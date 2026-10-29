@@ -176,7 +176,34 @@ func (c *Controller) ScannerNames() []string {
 
 // Scan 执行一次完整扫描。可在后台 goroutine 中调用。
 func (c *Controller) Scan() *model.Report {
-	return scan.ScanAll(context.Background(), scan.All(c.opts), c.opts)
+	report := scan.ScanAll(context.Background(), scan.All(c.opts), c.opts)
+	MarkUncleanable(c.g, report)
+	return report
+}
+
+// MarkUncleanable 把 guard 不允许清理的项标为只读。
+//
+// 扫描器只负责"发现了什么"，并不知道 guard 的白名单（例如系统缓存
+// /Library/Caches、Documents 下的大文件）。不预筛的话，界面与 CLI 都会
+// 把它们当作可清理项，直到清理时才被静默跳过。GUI 与 CLI 共用本函数，
+// 保证两边看到的可清理范围一致。
+//
+// 快照项的 Path 是快照名而非文件路径，不参与此判定。
+func MarkUncleanable(g *guard.Guard, r *model.Report) {
+	if r == nil || g == nil {
+		return
+	}
+	for i := range r.Items {
+		it := &r.Items[i]
+		if it.ReadOnly || it.Permanent || it.Category == model.CategorySnapshot {
+			continue
+		}
+		if g.Check(it.Path) == nil {
+			continue
+		}
+		it.ReadOnly = true
+		it.Note = appendNote(it.Note, "受保护路径，仅可查看")
+	}
 }
 
 // Children 列出某个目录的直接子项，供树形界面展开时按需调用。
@@ -353,6 +380,14 @@ func (c *Controller) RefilterReport(r *model.Report) *model.Report {
 	r.ExcludedBytes += bytes
 	r.Finalize()
 	return r
+}
+
+// appendNote 在已有说明后追加一句，保留原有说明不丢。
+func appendNote(note, extra string) string {
+	if note == "" {
+		return extra
+	}
+	return note + "；" + extra
 }
 
 // expandTilde 展开开头的 ~。

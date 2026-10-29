@@ -182,6 +182,23 @@ export class FileView {
              */
             this["note"] = "";
         }
+        if (!("risk" in $$source)) {
+            /**
+             * Risk 是单项风险等级（0 低 / 1 中 / 2 高），RiskLabel 是它的中文标签。
+             * 分类级的 safe 只决定「推荐 / 需确认」，同一分类里仍有黄区条目，
+             * 因此必须把单项风险透传给前端，「全选推荐项」据此跳过中高风险。
+             * @member
+             * @type {number}
+             */
+            this["risk"] = 0;
+        }
+        if (!("riskLabel" in $$source)) {
+            /**
+             * @member
+             * @type {string}
+             */
+            this["riskLabel"] = "";
+        }
         if (!("permanent" in $$source)) {
             /**
              * @member

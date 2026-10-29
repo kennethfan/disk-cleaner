@@ -126,6 +126,82 @@ func TestKeysRoundTripToItems(t *testing.T) {
 	}
 }
 
+// TestFileViewCarriesRisk 验证单项风险等级透传给前端：
+// 界面据此显示中/高风险标签，「全选推荐项」据此跳过中高风险。
+func TestFileViewCarriesRisk(t *testing.T) {
+	r := &model.Report{Items: []model.Item{
+		{Path: "/x/low", DisplayName: "低风险项", Category: model.CategoryUserCache, Risk: model.RiskLow},
+		{Path: "/x/mid", DisplayName: "中风险项", Category: model.CategoryUserCache, Risk: model.RiskMedium},
+		{Path: "/x/high", DisplayName: "高风险项", Category: model.CategoryUserCache, Risk: model.RiskHigh},
+	}}
+	v := newTestService(r).GetReport()
+	if v == nil || len(v.Cats) != 1 {
+		t.Fatalf("视图不成立: %+v", v)
+	}
+
+	got := make(map[string]FileView, len(v.Cats[0].Files))
+	for _, f := range v.Cats[0].Files {
+		got[f.N] = f
+	}
+	cases := []struct {
+		name  string
+		risk  int
+		label string
+	}{
+		{"低风险项", 0, "低"},
+		{"中风险项", 1, "中"},
+		{"高风险项", 2, "高"},
+	}
+	for _, c := range cases {
+		f, ok := got[c.name]
+		if !ok {
+			t.Errorf("缺少条目 %s", c.name)
+			continue
+		}
+		if f.Risk != c.risk {
+			t.Errorf("%s Risk = %d, 期望 %d", c.name, f.Risk, c.risk)
+		}
+		if f.RiskLabel != c.label {
+			t.Errorf("%s RiskLabel = %q, 期望 %q", c.name, f.RiskLabel, c.label)
+		}
+	}
+}
+
+// TestSystemCacheCategoryNotRecommended 验证系统缓存分类不再标「推荐」：
+// 这些路径不在 guard 白名单内，需要 sudo 处理，界面应要求人工确认。
+func TestSystemCacheCategoryNotRecommended(t *testing.T) {
+	r := &model.Report{Items: []model.Item{
+		{Path: "/Library/Caches", DisplayName: "系统缓存", Category: model.CategorySystemCache, Size: 1 << 20, ReadOnly: true},
+	}}
+	v := newTestService(r).GetReport()
+	if len(v.Cats) != 1 {
+		t.Fatalf("分类数 = %d, 期望 1", len(v.Cats))
+	}
+	if v.Cats[0].Safe {
+		t.Error("系统缓存分类不应标为推荐")
+	}
+}
+
+// TestDisplayVolumeName 验证卷名：APFS 数据卷（主目录所在卷）不能显示成
+// 挂载点末段的「Data」，外部磁盘仍显示自己的名字。
+func TestDisplayVolumeName(t *testing.T) {
+	startup := startupVolumeName()
+
+	data := displayVolumeName("/System/Volumes/Data")
+	if data == "Data" {
+		t.Errorf("/System/Volumes/Data 显示成了挂载点末段 %q，应回退到启动磁盘名 %q", data, startup)
+	}
+	if data != startup {
+		t.Errorf("/System/Volumes/Data → %q, 期望 %q", data, startup)
+	}
+	if got := displayVolumeName("/"); got != startup {
+		t.Errorf("根卷 → %q, 期望 %q", got, startup)
+	}
+	if got := displayVolumeName("/Volumes/Backup"); got != "Backup" {
+		t.Errorf("/Volumes/Backup → %q, 期望 Backup", got)
+	}
+}
+
 // TestSelectItemsRejectsLockedItems 验证永久删除项与只读项在入口就被挡住，
 // 界面即使误传 key 也不会让引擎尝试清理。
 func TestSelectItemsRejectsLockedItems(t *testing.T) {

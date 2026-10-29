@@ -217,6 +217,9 @@ main{flex:1;display:flex;flex-direction:column;min-width:0}
   background:rgba(0,0,0,.05);border:1px solid var(--line);border-radius:6px;
   padding:1px 7px;cursor:default}
 .file-row.locked .f-name,.lf-table tr.locked .lf-name{color:var(--fg-2)}
+.f-risk{display:inline-block;margin-left:6px;font-size:10px;font-weight:700;
+  color:#b25000;background:rgba(255,159,10,.16);padding:1px 6px;border-radius:8px;vertical-align:1px}
+.f-risk.high{color:#c0392b;background:rgba(255,69,58,.14)}
 
 /* 底部汇总栏 */
 .action-bar{
@@ -354,7 +357,7 @@ main{flex:1;display:flex;flex-direction:column;min-width:0}
     <aside class="sidebar">
       <div class="disk-chip">
         <div class="mini-ring" id="miniRing"></div>
-        <div><b>Macintosh HD</b><span id="chipFree">可用 165.8 GB / 494.4 GB</span></div>
+        <div><b id="diskName">Macintosh HD</b><span id="chipFree">容量未知</span></div>
       </div>
       <div class="nav-label">空间管理</div>
       <button class="nav-item active" data-view="overview"><span class="ico">📊</span>概览</button>
@@ -388,8 +391,8 @@ main{flex:1;display:flex;flex-direction:column;min-width:0}
             <div class="ring-wrap">
               <div class="ring" id="bigRing" style="background:conic-gradient(#c7c7cc 0 66.5%,#e5e5ea 66.5% 100%)"></div>
               <div class="ring-center">
-                <div class="big" id="ringBig">66.5%</div>
-                <div class="cap" id="ringCap">已使用 328.6 GB</div>
+                <div class="big" id="ringBig">—</div>
+                <div class="cap" id="ringCap">容量未知</div>
               </div>
             </div>
             <div class="hero-info">
@@ -467,7 +470,7 @@ main{flex:1;display:flex;flex-direction:column;min-width:0}
           <div class="clean-panel">
             <div class="done-ico">✓</div>
             <h2>清理完成</h2>
-            <div class="done-big" id="doneBig">+3.2 GB</div>
+            <div class="done-big" id="doneBig">+0 B</div>
             <div class="hint-line">所有文件已移入<b>废纸篓</b>，未从磁盘删除。<br>清空废纸篓前，您可随时打开恢复；30 天后系统将自动彻底清除。</div>
             <div class="done-actions">
               <button class="btn btn-ghost" id="btnUndo">↩︎ 撤销本次清理</button>
@@ -520,9 +523,14 @@ main{flex:1;display:flex;flex-direction:column;min-width:0}
 import * as Service from "./bindings-v2/github.com/kennethfan/disk-cleaner/internal/webui/service.js";
 import { Events } from "/wails/runtime.js";
 
-const GB=1073741824, MB=1048576;
+// 容量用十进制单位（1 GB = 1000³ B），与 Finder / 系统设置一致；
+// 用 1024³ 却标成 GB 会让同一块 250.8 GB 的盘显示成 233.6 GB。
+const GB=1e9, MB=1e6, KB=1e3;
 const $=id=>document.getElementById(id);
-const fmt=b=> b>=GB ? (b/GB).toFixed(1)+' GB' : Math.round(b/MB)+' MB';
+const fmt=b=> b>=GB ? (b/GB).toFixed(1)+' GB'
+          : b>=MB ? Math.round(b/MB)+' MB'
+          : b>=KB ? Math.round(b/KB)+' KB'
+          : Math.max(0,Math.round(b))+' B';
 
 /* ================= 数据（来自引擎） ================= */
 let CATS=[], LARGE=[], DISK={total:0,used:0,free:0,label:''};
@@ -611,15 +619,22 @@ const catFiles=c=>c.files.map(f=>({cat:c,...f}));
 const catSize=c=>catFiles(c).reduce((a,f)=>a+f.s,0);
 const allFiles=()=>CATS.flatMap(catFiles);
 const largeList=()=>LARGE.map(largeItem);
-const totalReclaim=()=>allFiles().reduce((a,f)=>a+f.s,0)+LARGE.reduce((a,f)=>a+f.s,0);
 /* 永久删除项（废纸篓、APFS 快照）与指定目录扫描结果（只读）
    一律不可勾选：前者需要 sudo/专用流程，后者删除仍受 guard 白名单约束。 */
 const isSelectable=f=>!f.permanent&&!f.readOnly;
 const lockLabel=f=>f.permanent?'永久':'只读';
-const lockNote=f=>f.permanent?'永久删除项不走废纸篓流程':'指定目录扫描结果仅可查看';
+const lockNote=f=>f.permanent?'永久删除项不走废纸篓流程':'该项不可清理，仅可查看';
 const selectableFiles=c=>catFiles(c).filter(isSelectable);
-/* 「全选推荐项」只覆盖标为推荐（safe）的分类，高风险分类需逐项手工勾选。 */
-const recommendedKeys=()=>CATS.filter(c=>c.safe).flatMap(c=>selectableFiles(c).map(f=>f.key));
+/* 单项风险标记：低风险不打扰，中/高在名字后标出，提示删除前确认。 */
+const riskTag=f=>f.risk>0?`<span class="f-risk${f.risk>1?' high':''}">${f.riskLabel}风险</span>`:'';
+/* 「可清理」只算能勾选的项：只读项（指定目录、guard 保护路径）留在列表里供查看，
+   但不计入可回收体积。 */
+const reclaimable=fs=>fs.filter(isSelectable).reduce((a,f)=>a+f.s,0);
+const totalReclaim=()=>reclaimable(allFiles())+reclaimable(largeList());
+/* 「全选推荐项」只覆盖标为推荐（safe）的分类，且只选低风险条目：
+   同一分类里可能混有黄区（中风险），这些需逐项手工勾选。 */
+const recommendedKeys=()=>CATS.filter(c=>c.safe)
+  .flatMap(c=>selectableFiles(c).filter(f=>f.risk===0).map(f=>f.key));
 
 /* ================= 导航 ================= */
 const TITLES={overview:['磁盘概览','上次扫描：从未'],advice:['清理建议','勾选后一次性移入废纸篓'],large:['大文件','按大小排列，支持多选'],exclude:['排除列表','扫描时将完全跳过这些目录'],cleaning:['正在清理',''],done:['清理完成','']};
@@ -669,6 +684,7 @@ function renderOverview(){
     : `conic-gradient(#c7c7cc 0 ${pct}%, #e5e5ea ${pct}% 100%)`;
   $('ringBig').textContent=pct+'%';
   $('ringCap').textContent=`已使用 ${(DISK.used/GB).toFixed(1)} GB`;
+  $('diskName').textContent=DISK.label||'磁盘';
   $('diskTitle').textContent=`${DISK.label||'磁盘'} — ${(DISK.total/GB).toFixed(1)} GB`;
   $('diskSub').textContent=`已用 ${(DISK.used/GB).toFixed(1)} GB · 可用 ${(DISK.free/GB).toFixed(1)} GB（${(DISK.free/DISK.total*100).toFixed(1)}%）`;
   $('miniRing').style.background=`conic-gradient(var(--accent) 0 ${pct}%, #e5e5ea ${pct}% 100%)`;
@@ -713,8 +729,12 @@ Events.On('scan:progress',ev=>{
 });
 Events.On('scan:done',ev=>{
   if(raced)return; raced=true;
-  const {Canceled:cancel,Report:rep}=ev.data||{};
-  if(cancel){showView('overview');toast('扫描已取消');return;}
+  // 事件负载按 Go 结构的 json tag 序列化，字段名是小写
+  //（与 scan:progress / clean:one 一致），不要按 Go 字段名读。
+  const data=ev.data||{};
+  if(data.canceled){showView('overview');toast('扫描已取消');return;}
+  const rep=data.report;
+  if(!rep){showView('overview');toast('扫描结束，但没有返回结果');return;}
   applyReport(rep);
   const n=allFiles().length, nl=LARGE.length;
   $('navCnt').hidden=false; $('navCnt').textContent=n;
@@ -772,7 +792,7 @@ function renderCards(){
            ? `<span class="lf-check" data-key="${f.key}" role="checkbox" tabindex="0" aria-checked="false">✓</span>`
            : `<span class="f-lock" title="${lockNote(f)}">${lockLabel(f)}</span>`}
          <span class="f-ico">${c.icon}</span>
-         <div style="min-width:0"><div class="f-name">${f.n}</div><div class="f-path">${f.p}</div></div>
+         <div style="min-width:0"><div class="f-name">${f.n}${riskTag(f)}</div><div class="f-path">${f.p}</div></div>
          <span class="f-age">${f.note||''}</span>
          <button class="f-ex" data-key="${f.key}" title="将所在目录加入排除列表，长期跳过">🚫 排除</button>
          <span class="f-size">${fmt(f.s)}</span>
@@ -855,7 +875,7 @@ function renderLargeRows(list){
        <td>${isSelectable(f)
          ? `<span class="lf-check" data-i="${f.key}" role="checkbox" tabindex="0" aria-checked="false">✓</span>`
          : `<span class="f-lock" title="${lockNote(f)}">${lockLabel(f)}</span>`}</td>
-       <td><span class="lf-name">🗂 ${f.n}</span></td>
+       <td><span class="lf-name">🗂 ${f.n}${riskTag(f)}</span></td>
        <td style="color:var(--fg-2);font-size:12px">${f.p}</td>
        <td style="color:var(--fg-3);font-size:12px">${f.note||''}</td>
        <td style="text-align:right;font-weight:600;font-variant-numeric:tabular-nums">${fmt(f.s)}</td>

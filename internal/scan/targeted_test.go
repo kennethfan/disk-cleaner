@@ -117,7 +117,7 @@ func TestAllUsesTargetScannerWhenPathsGiven(t *testing.T) {
 // TestScanAllAppliesExclude 验证排除规则在 ScanAll 出口生效并计入统计。
 func TestScanAllAppliesExclude(t *testing.T) {
 	home := t.TempDir()
-	cache := filepath.Join(home, "Library", "Caches")
+	cache := filepath.Join(home, "Library", "Caches", "app")
 	if err := os.MkdirAll(cache, 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -164,7 +164,7 @@ func TestScanAllRecordsTargetPaths(t *testing.T) {
 // TestScanAllExcludeActuallyFilters 真正验证排除规则会过滤掉项目并计入统计。
 func TestScanAllExcludeActuallyFilters(t *testing.T) {
 	home := t.TempDir()
-	cache := filepath.Join(home, "Library", "Caches")
+	cache := filepath.Join(home, "Library", "Caches", "app")
 	if err := os.MkdirAll(cache, 0o755); err != nil {
 		t.Fatal(err)
 	}
