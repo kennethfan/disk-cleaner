@@ -138,9 +138,12 @@ notarize:
 	@rm -f dist/notarize.zip
 	@echo "公证完成，可用 make verify-sign 复核"
 
-## test: 运行全部单元测试
+## test: 运行全部单元测试（带 -race）
+#
+# 扫描、清理、暂停都在后台 goroutine 上跑，普通 go test 抓不到数据竞争；
+# 需要 cgo，macOS 上有 Xcode Command Line Tools 即可。
 test:
-	go test ./...
+	go test -race ./...
 
 ## cover: 输出各包覆盖率
 cover:
