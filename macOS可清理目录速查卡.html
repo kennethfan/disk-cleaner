@@ -1,0 +1,97 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>macOS可清理目录速查卡</title>
+<style>
+:root{
+  --bg:#0f1115; --bg-soft:#151922; --bg-card:#171c26; --line:#242b38;
+  --fg:#e6e9ef; --fg-dim:#9aa4b8; --fg-mute:#6b7589;
+  --accent:#5b9dff; --accent-2:#7c6cff; --ok:#3ecf8e; --warn:#f0b429; --bad:#f2555a;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--fg);
+  font-family:-apple-system,BlinkMacSystemFont,"PingFang SC","Helvetica Neue","Microsoft YaHei",sans-serif;
+  font-size:15px;line-height:1.85;-webkit-font-smoothing:antialiased}
+.wrap{max-width:960px;margin:0 auto;padding:56px 28px 96px}
+h1{font-size:30px;line-height:1.4;margin:8px 0 18px;letter-spacing:.4px;font-weight:700}
+h2{font-size:22px;margin:52px 0 16px;padding:14px 0 12px 14px;border-left:3px solid var(--accent);
+   background:linear-gradient(90deg,rgba(91,157,255,.10),transparent 70%);border-radius:0 6px 6px 0;font-weight:650}
+h3{font-size:17.5px;margin:34px 0 12px;color:#cfd8ea;font-weight:640}
+h4{font-size:15.5px;margin:24px 0 10px;color:#c2cadb;font-weight:640}
+p{margin:12px 0;color:#d5dbe7}
+a{color:var(--accent);text-decoration:none}
+hr{border:0;border-top:1px solid var(--line);margin:40px 0}
+ul,ol{padding-left:22px;margin:12px 0}
+li{margin:6px 0;color:#d5dbe7}
+code{background:#1d2331;border:1px solid var(--line);border-radius:4px;
+  padding:1px 6px;font-size:13px;color:#9fd0ff;
+  font-family:"SF Mono",Menlo,Consolas,monospace}
+pre{background:#12161f;border:1px solid var(--line);border-radius:10px;
+  padding:18px 20px;overflow-x:auto;margin:18px 0;line-height:1.6}
+pre code{background:none;border:0;padding:0;color:#a8b6d0;font-size:12.5px}
+blockquote{margin:18px 0;padding:14px 20px;background:var(--bg-soft);
+  border-left:3px solid var(--accent-2);border-radius:0 8px 8px 0;color:#c3ccdf}
+blockquote p{margin:4px 0;color:#c3ccdf}
+strong{color:#fff;font-weight:650}
+table{border-collapse:collapse;width:100%;margin:18px 0;font-size:13.6px;
+  background:var(--bg-card);border:1px solid var(--line);border-radius:10px;overflow:hidden}
+th{background:#1b2130;color:#cdd6e8;text-align:left;padding:11px 14px;
+  font-weight:640;border-bottom:1px solid var(--line);white-space:nowrap}
+td{padding:10px 14px;border-bottom:1px solid #1e2532;color:#c8d0e0;vertical-align:top}
+tr:last-child td{border-bottom:0}
+tbody tr:hover{background:#1b2130}
+.tbl{overflow-x:auto;margin:18px 0}
+.tbl table{margin:0}
+.meta{color:var(--fg-mute);font-size:13px;margin-bottom:6px}
+.footnote{margin-top:48px;padding-top:18px;border-top:1px solid var(--line);
+  color:var(--fg-mute);font-size:12.5px;font-style:italic}
+@media (max-width:640px){
+  .wrap{padding:32px 16px 64px}
+  h1{font-size:23px} h2{font-size:19px} h3{font-size:16px}
+  table{font-size:12.4px} th,td{padding:8px 10px}
+}
+</style>
+</head>
+<body>
+<div class="wrap">
+<h1>macOS 可清理目录速查卡</h1>
+<blockquote><p>整理日期：2026-10-29 ｜ 数据来源：<strong>本机（Kenneth 的 Mac）只读实测</strong>，非通用示例值</p><p>数据卷现状：已用 186 GB / 可用 25 GB（89%）｜本档可回收约 <strong>26 GB（绿区）+ 3~5 GB（黄区）</strong></p></blockquote>
+<hr>
+<h2>一、分类总览：三个维度</h2>
+<p>同一批目录按三个维度切分，任一维度都能快速判断"该不该动"：</p>
+<div class='tbl'><table><thead><tr><th>维度</th><th>回答问题</th><th>用途</th></tr></thead><tbody><tr><td><strong>归属方</strong></td><td>谁在管理它？</td><td>决定你有没有权限/该不该动</td></tr><tr><td><strong>风险等级</strong></td><td>删了会怎样？</td><td>决定敢不敢删（绿/黄/红）</td></tr><tr><td><strong>再生成本</strong></td><td>多久能恢复？</td><td>决定清得值不值</td></tr></tbody></table></div>
+<hr>
+<h2>二、按「归属方」分类</h2>
+<div class='tbl'><table><thead><tr><th>类别</th><th>典型目录</th><th>本机实测</th><th>清理权</th></tr></thead><tbody><tr><td><strong>A. 用户级缓存</strong></td><td><code>~/Library/Caches/*</code>、<code>~/.cache/*</code></td><td>9.9 GB</td><td>自己可删，系统/应用自动重建</td></tr><tr><td><strong>B. 开发工具链缓存</strong></td><td><code>~/.m2</code>、<code>~/.gradle/caches</code>、<code>~/.npm</code>、<code>go-build</code>、<code>pip</code>、<code>zig</code></td><td><strong>22.1 GB</strong></td><td>可删，下次构建重拉</td></tr><tr><td><strong>C. 应用沙盒容器</strong></td><td><code>~/Library/Containers/*</code>（微信 8.6G、Docker 2.9G、腾讯会议 555M）</td><td>12.1 GB</td><td>⚠️ 只能进容器内清缓存，<strong>不可整目录删</strong>（删容器=丢应用数据）</td></tr><tr><td><strong>D. 应用支持数据</strong></td><td><code>~/Library/Application Support/*</code>（Chrome 8.5G、Slack 1.0G）</td><td>12.1 GB</td><td>⚠️ 混合区，仅明确标 cache 的子目录可动</td></tr><tr><td><strong>E. 系统缓存与日志</strong></td><td><code>/Library/Caches</code>、<code>/private/var/log</code>、<code>~/Library/Logs</code></td><td>161 MB</td><td>需 sudo 或系统自管，收益低</td></tr><tr><td><strong>F. 系统保留区</strong></td><td><code>/System</code>、<code>/private/var/folders</code>、<code>/private/var/db</code>、<code>/Volumes</code></td><td>—</td><td>⛔ 绝对禁区</td></tr><tr><td><strong>G. 用户文档区</strong></td><td>Downloads / Desktop / Documents / Movies / Pictures</td><td>自行盘点</td><td>非缓存，只能人工判断价值</td></tr></tbody></table></div>
+<hr>
+<h2>三、按「风险等级」分类</h2>
+<div class='tbl'><table><thead><tr><th>等级</th><th>判定</th><th>目录</th></tr></thead><tbody><tr><td>🟢 绿</td><td>删了无损，自动重建</td><td>A 全部、B 全部、C 内 <code>Caches/</code> 子目录、<code>~/Library/Logs</code></td></tr><tr><td>🟡 黄</td><td>先确认再删</td><td>D 中带 cache/temp 字样的子目录、Docker 镜像、微信媒体缓存、<code>~/Library/Developer</code>（装 Xcode 时）</td></tr><tr><td>🔴 红</td><td>永不触碰</td><td><code>Application Support/Google</code>（Chrome 用户数据）、微信 <code>db_storage</code>、<code>/System</code>、<code>/private/var/folders</code>、<code>~/Pictures</code>（照片图库）、<code>~/Library/Mail</code></td></tr></tbody></table></div>
+<hr>
+<h2>四、按「再生成本」分类</h2>
+<div class='tbl'><table><thead><tr><th>再生成本</th><th>目录</th><th>清理心理负担</th></tr></thead><tbody><tr><td>秒级（本地计算）</td><td><code>~/Library/Caches</code>、<code>go-build</code>、JetBrains 索引、缩略图缓存</td><td>零</td></tr><tr><td>分钟级（需网络重下）</td><td><code>~/.m2</code>、<code>~/.npm</code>、<code>~/.gradle</code>、<code>pip</code></td><td>低（弱网时注意）</td></tr><tr><td>需重新配置</td><td>Docker 镜像、IDE 索引、微信开发者工具</td><td>中</td></tr><tr><td><strong>不可再生</strong></td><td><code>Application Support/Google</code>、微信 <code>db_storage</code>、文档区</td><td>⛔ 不清</td></tr></tbody></table></div>
+<hr>
+<h2>五、三问判定法（陌生目录通用）</h2>
+<ol><li><strong>能再生成吗？</strong> 不能 → 红区，停手</li><li><strong>是缓存还是用户数据？</strong> 路径含 <code>Caches</code>/<code>cache</code>/<code>tmp</code>/<code>logs</code> 才考虑，否则黄区</li><li><strong>谁管理？</strong> 系统（<code>/System</code>、<code>var/folders</code>）不碰；应用沙盒内进容器清，不整删</li></ol>
+<hr>
+<h2>六、逐目录明细（本机实测）</h2>
+<div class='tbl'><table><thead><tr><th>路径</th><th>类别</th><th>风险</th><th>实测</th><th>说明</th><th>安全清理方式</th></tr></thead><tbody><tr><td><code>~/.m2/repository</code></td><td>B</td><td>🟢</td><td><strong>9.7 GB</strong></td><td>Maven 依赖缓存</td><td>删 repository，下次构建重拉</td></tr><tr><td><code>~/Library/Caches/Google</code></td><td>A</td><td>🟢</td><td>3.3 GB</td><td>Chrome 缓存（≠ Application Support/Google）</td><td>退出 Chrome 后清 <code>*/Cache*</code></td></tr><tr><td><code>~/.gradle/caches</code></td><td>B</td><td>🟢</td><td>3.3 GB</td><td>Gradle 构建缓存</td><td><code>rm -rf ~/.gradle/caches</code></td></tr><tr><td><code>~/.npm</code></td><td>B</td><td>🟢</td><td>3.1 GB</td><td>npm 缓存</td><td><code>npm cache clean --force</code></td></tr><tr><td><code>~/.cache/opencode</code></td><td>A</td><td>🟢</td><td>2.1 GB</td><td>opencode 工具缓存（确认无会话数据后清）</td><td>直接删目录</td></tr><tr><td><code>~/Library/Caches/go-build</code></td><td>B</td><td>🟢</td><td>1.6 GB</td><td>Go 编译缓存</td><td><code>go clean -cache</code></td></tr><tr><td><code>~/Library/Caches/JetBrains</code></td><td>B</td><td>🟢</td><td>1.1 GB</td><td>IDE 索引（重开会重建）</td><td>退出 IDE 后删</td></tr><tr><td><code>~/.cache/hyperframes</code></td><td>A</td><td>🟢</td><td>1.1 GB</td><td>工具缓存</td><td>直接删</td></tr><tr><td><code>~/Library/Caches/pnpm</code></td><td>B</td><td>🟢</td><td>80 MB</td><td>pnpm store 缓存</td><td><code>pnpm store prune</code></td></tr><tr><td><code>~/Library/Caches/Yarn</code></td><td>B</td><td>🟢</td><td>55 MB</td><td>Yarn 缓存</td><td><code>yarn cache clean</code></td></tr><tr><td><code>~/Library/Caches/pip</code></td><td>B</td><td>🟢</td><td>29 MB</td><td>pip 缓存</td><td><code>pip cache purge</code></td></tr><tr><td><code>~/Library/Caches/GeoServices</code></td><td>A</td><td>🟢</td><td>56 MB</td><td>地图瓦片缓存</td><td>可删</td></tr><tr><td><code>~/.cache/zig</code>、<code>~/.cache/node</code> 等</td><td>B</td><td>🟢</td><td>0.3 GB</td><td>各类工具缓存</td><td>可删</td></tr><tr><td><code>~/Library/Logs</code></td><td>E</td><td>🟢</td><td>62 MB</td><td>用户级日志</td><td>可删</td></tr><tr><td><code>/private/var/log</code></td><td>E</td><td>🟡</td><td>93 MB</td><td>系统日志</td><td><code>sudo</code> 清理，收益低可不做</td></tr><tr><td><code>~/Library/Containers/com.tencent.xinWeChat</code></td><td>C</td><td>🟡</td><td><strong>8.6 GB</strong></td><td>微信媒体（attach/video 按月池 + 孤儿）</td><td>用微清原型逻辑：按月筛选 + 孤儿清理，<strong>不动 db_storage</strong></td></tr><tr><td><code>~/Library/Containers/com.docker.docker</code></td><td>C</td><td>🟡</td><td>2.9 GB</td><td>Docker 虚拟磁盘</td><td><code>docker system prune -a</code>（会删镜像）</td></tr><tr><td><code>~/Library/Containers/com.tencent.meeting</code></td><td>C</td><td>🟡</td><td>555 MB</td><td>腾讯会议缓存</td><td>应用内清理设置</td></tr><tr><td><code>~/Library/Application Support/微信开发者工具</code></td><td>D</td><td>🟡</td><td>1.1 GB</td><td>旧项目缓存</td><td>确认项目无引用后清</td></tr><tr><td><code>~/Library/Application Support/Slack</code></td><td>D</td><td>🟡</td><td>1.0 GB</td><td>含 Cache/Service Worker 子目录</td><td>只清 <code>Cache</code>/<code>Code Cache</code> 子目录</td></tr><tr><td><code>~/Library/Application Support/Google</code></td><td>D</td><td>🔴</td><td><strong>8.5 GB</strong></td><td>Chrome 用户数据（书签/密码/扩展）</td><td>⛔ 禁止删除</td></tr><tr><td><code>/Library/Caches</code></td><td>E</td><td>🟡</td><td>6.2 MB</td><td>系统级缓存</td><td>需 sudo，收益极低</td></tr></tbody></table></div>
+<hr>
+<h2>七、清理优先级建议（按收益/风险比）</h2>
+<div class='tbl'><table><thead><tr><th>顺序</th><th>动作</th><th>预计回收</th><th>耗时</th><th>风险</th></tr></thead><tbody><tr><td>1</td><td><code>~/.m2/repository</code> + <code>~/.gradle/caches</code></td><td>13.0 GB</td><td>秒级</td><td>无（重拉即可）</td></tr><tr><td>2</td><td>Chrome 缓存（退出浏览器后）</td><td>3.3 GB</td><td>1 分钟</td><td>无</td></tr><tr><td>3</td><td><code>~/.npm</code> + pnpm/yarn/pip 缓存</td><td>3.3 GB</td><td>秒级</td><td>无</td></tr><tr><td>4</td><td><code>go-build</code> + JetBrains + <code>~/.cache</code> 杂项</td><td>5.0 GB</td><td>秒级</td><td>无（IDE 重建索引稍慢）</td></tr><tr><td>5</td><td>微信媒体（按月 + 孤儿）</td><td>3~5 GB</td><td>10 分钟</td><td>低（废纸篓可恢复）</td></tr><tr><td>6</td><td>Docker 无用镜像</td><td>按需 1~2 GB</td><td>5 分钟</td><td>中（镜像需重拉）</td></tr></tbody></table></div>
+<p><strong>合计可回收约 29~31 GB</strong>，可用空间从 25 GB 回到 55 GB 左右。</p>
+<hr>
+<h2>八、红线清单（请勿删除）</h2>
+<ul><li><code>~/Library/Application Support/Google</code>（8.5 GB）— Chrome 书签/密码/扩展，删了等于重置浏览器</li><li><code>~/Library/Application Support/MobileSync</code> — iPhone 备份</li><li>微信 <code>xwechat_files/&lt;wxid&gt;/db_storage</code>（545 MB）— 聊天记录数据库</li><li><code>/System</code>、<code>/private/var/folders</code>、<code>/private/var/db</code> — 系统保留</li><li><code>~/Pictures/*.photoslibrary</code>、<code>~/Library/Mail</code>、<code>~/Library/Keychains</code> — 不可再生数据</li><li><code>~/Downloads</code>、<code>~/Desktop</code>、<code>~/Documents</code> — 你的文件，工具无权判断</li></ul>
+<hr>
+<h2>九、执行与验证</h2>
+<p><strong>验证命令</strong>（清理前后各跑一次对比）：</p>
+<pre><code>df -h /System/Volumes/Data          # 查看可用空间
+du -sh ~/.m2 ~/Library/Caches ~/.cache ~/.npm 2&gt;/dev/null   # 查看各目录占用</code></pre>
+<p><strong>安全删除原则</strong>：</p>
+<ol><li>优先走废纸篓（macOS 可装 <code>trash</code> CLI：<code>brew install trash</code>，用法 <code>trash &lt;path&gt;</code>）</li><li>不用 <code>rm -rf</code> 直接删个人目录；确需命令删除时，务必逐条确认路径拼写</li><li>一次只做一类，删完验证空间变化，再继续下一类</li><li>涉及 <code>sudo</code> 的系统目录（<code>/Library/Caches</code>、<code>/private/var/log</code>）收益低，建议直接跳过</li></ol>
+<blockquote><p>本档仅为清单与判定方法，不含自动执行脚本。如需脚本化，应逐步执行、每步列出将删内容并等待确认。</p></blockquote>
+</div>
+</body>
+</html>
