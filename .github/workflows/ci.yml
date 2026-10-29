@@ -20,3 +20,19 @@ jobs:
       # 与本地 make check 完全一致：gofmt -l、go vet、go test
       - name: 格式检查 + 静态检查 + 单元测试
         run: make check
+
+      - name: 构建命令行二进制
+        run: make build
+
+      # ad-hoc 签名在 macos runner 上无需证书即可完成。
+      - name: 打包 .app
+        run: make app
+
+      # 光有产物不够：二进制要能跑起来，.app 要能被 codesign 验过才穿得过 Gatekeeper。
+      - name: 验证产物
+        run: |
+          ./bin/disk-cleaner help
+          test -x "dist/磁盘清理.app/Contents/MacOS/disk-cleaner"
+          test -f "dist/磁盘清理.app/Contents/Resources/AppIcon.icns"
+          codesign --verify --deep --strict "dist/磁盘清理.app"
+          /usr/libexec/PlistBuddy -c "Print :CFBundleShortVersionString" "dist/磁盘清理.app/Contents/Info.plist"
