@@ -2,14 +2,13 @@
 
 | 文件 | 架构 | 签名 |
 |---|---|---|
-| `@ASSET@` | @ARCH@ | ad-hoc（未公证） |
+| `disk-cleaner-v@VERSION@-macos-arm64-adhoc.app.zip` | arm64（Apple Silicon） | ad-hoc（未公证） |
+| `disk-cleaner-v@VERSION@-macos-x86_64-adhoc.app.zip` | x86_64（Intel） | ad-hoc（未公证） |
 
-解压得到「磁盘清理.app」，拖进 `/Applications` 即可。**首次打开会被 Gatekeeper 拦下**，因为该包没有 Apple 公证，任选一种方式放行：
+两个架构各发一份，挑与自己机器一致的那个（苹果菜单 →「关于本机」可看芯片）。解压得到「磁盘清理.app」，拖进 `/Applications` 即可。**首次打开会被 Gatekeeper 拦下**，因为该包没有 Apple 公证，任选一种方式放行：
 
 - Finder 里右键 →「打开」，再确认一次；或
 - `xattr -dr com.apple.quarantine "/Applications/磁盘清理.app"`
-
-架构不匹配（不是 @ARCH@）请从源码构建——本工具不做交叉编译，产物与构建机架构一致。
 
 ## 源码构建
 

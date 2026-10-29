@@ -51,7 +51,7 @@ Intel 与 Apple Silicon 均可构建，未做交叉编译，产物与构建机�
 
 从 [Releases](https://github.com/kennethfan/disk-cleaner/releases) 下载 `disk-cleaner-v*-macos-<arch>-adhoc.app.zip`：
 
-- `<arch>` 是构建架构：Intel Mac 用 `x86_64`，Apple Silicon 用 `arm64`。工具不交叉编译，下错架构打不开
+- 两个架构各发一份：Intel Mac 用 `x86_64`，Apple Silicon 用 `arm64`（苹果菜单 →「关于本机」可看芯片），下错架构打不开
 - 解压得到「磁盘清理.app」，拖进 `/Applications`
 - 附件是 **ad-hoc 签名、未公证** 的，首次打开会被 Gatekeeper 拦下：Finder 里右键 →「打开」，或执行 `xattr -dr com.apple.quarantine "/Applications/磁盘清理.app"`
 

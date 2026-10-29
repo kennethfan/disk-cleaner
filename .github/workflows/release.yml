@@ -1,34 +1,21 @@
 name: Release
 
-# 推 tag 即发版：v* 触发，通过 CI 同款闸门后，构建 .app 作为附件并创建 GitHub Release。
+# 推 tag 即发版：v* 触发，两个架构各构建一份 .app，通过闸门后一起发布。
 on:
   push:
     tags:
       - 'v*'
 
 jobs:
-  release:
-    # 与 CI 同理必须用 macOS：代码直接依赖 darwin syscall，WebView 壳还要 cgo。
-    runs-on: macos-latest
-    permissions:
-      contents: write
-
+  # 先把版本号挑出来：两个构建支路和发布都要用，且对不上要尽快失败，
+  # 别等两个 runner 各跑完一遍才报错。
+  version:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.check.outputs.version }}
     steps:
       - uses: actions/checkout@v7
-        with:
-          # 变更列表要拿上一个 tag 做上界，版本号校验也要看到全部 tag，
-          # 所以必须是完整历史。
-          fetch-depth: 0
-
-      - uses: actions/setup-go@v7
-        with:
-          go-version-file: go.mod
-          cache: true
-
-      # .app 的 Info.plist 版本号来自 Makefile 的 VERSION，
-      # tag 与它不一致会发出一个版本号对不上的 release，这里直接拦住。
-      - name: 校验 tag 与 Makefile VERSION 一致
-        id: version
+      - id: check
         run: |
           tag="${GITHUB_REF_NAME#v}"
           make_version=$(sed -n 's/^VERSION := //p' Makefile)
@@ -39,8 +26,35 @@ jobs:
           echo "版本一致: $make_version"
           echo "version=$make_version" >> "$GITHUB_OUTPUT"
 
-      # 发布 commit 必须格式、vet、测试全过，与 CI 是同一道闸门。
+  build:
+    needs: version
+    # 两个架构各在自己原生架构的 runner 上构建。WebView 壳依赖 cgo，
+    # 从 arm64 交叉编译 x86_64 要额外摆弄 SDK 与链接器，不如让 Intel 机器自己跑。
+    #
+    # 标签钉在 macOS 15 而不是 macos-latest：macos-latest（现为 macOS 26）只有 arm64，
+    # Intel 的标准镜像是 macos-15-intel（GitHub 最后一个 x86_64 镜像，2027 年秋退役）；
+    # 两边同一代系统，SDK 与最低系统版本才一致。
+    strategy:
+      matrix:
+        include:
+          - runner: macos-15
+            arch: arm64
+          - runner: macos-15-intel
+            arch: x86_64
+    runs-on: ${{ matrix.runner }}
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      # 测试带 -race、还要 cgo，跑一遍够了：main 上的 CI 已经在跑，
+      # 这里只是确认打 tag 的 commit 没坏，不必两个架构各跑一次。
       - name: 格式检查 + 静态检查 + 单元测试
+        if: matrix.arch == 'arm64'
         run: make check
 
       - name: 构建二进制与 .app
@@ -49,15 +63,20 @@ jobs:
           make app
           ./bin/disk-cleaner help
           test -x "dist/磁盘清理.app/Contents/MacOS/disk-cleaner"
+          # 断言产物架构与矩阵声明一致：runner 标签写错时能当场发现，
+          # 而不是等到用户下载后才发现两个附件是同一个架构。
+          actual="$(lipo -archs "dist/磁盘清理.app/Contents/MacOS/disk-cleaner")"
+          if [ "$actual" != "${{ matrix.arch }}" ]; then
+            echo "产物架构是 ${actual}，与矩阵声明的 ${{ matrix.arch }} 不一致" >&2
+            exit 1
+          fi
           codesign --verify --deep --strict "dist/磁盘清理.app"
 
-      # 附件是给他人双击用的，所以架构必须写进文件名：runner 是 Apple Silicon
-      # 时产物为 arm64，Intel 上构建则不同，不标注对方下错了只会看到闪退。
+      # 文件名里的架构是给下载的人看的：不标注的话下错架构只会看到闪退。
       - name: 打包 .app 为可分发的 zip
-        id: package
         run: |
-          version="${{ steps.version.outputs.version }}"
-          arch="$(uname -m)"
+          version="${{ needs.version.outputs.version }}"
+          arch="${{ matrix.arch }}"
           # 文件名保持 ASCII：下载链接、解压工具、日志里都不会踩编码问题。
           asset="disk-cleaner-v${version}-macos-${arch}-adhoc.app.zip"
           # 必须用 ditto 而非 zip：zip 会丢掉符号链接与扩展属性，解压出来的
@@ -69,27 +88,42 @@ jobs:
           # 附件里的 .app 保留中文名（Finder 解压正常），所以不列 unzip -l：
           # macOS 的 unzip 会把中文名打印成乱码，日志里只会制造噪音。
           ls -lh "dist/${asset}"
-          echo "asset=${asset}" >> "$GITHUB_OUTPUT"
-          echo "arch=${arch}" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: app-${{ matrix.arch }}
+          path: dist/*.zip
+          if-no-files-found: error
+
+  release:
+    needs: [version, build]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          # 变更列表要拿上一个 tag 做上界，必须是完整历史。
+          fetch-depth: 0
+
+      - uses: actions/download-artifact@v8
+        with:
+          path: dist-assets
+          merge-multiple: true
 
       # 说明正文用仓库内模板（下载、Gatekeeper 放行、环境要求），末尾的
       # 「本版变更」由 git log 追加——本仓库直推、不走 PR，gh 的
       # --generate-notes 在这种历史下只剩一行 Full Changelog。
       #
-      # 模板里的占位符（@VERSION@ / @ARCH@ / @ASSET@）分别换成 Makefile 版本号、
-      # 构建架构、附件文件名。模板文件只放正文：它会被原样发布，别在其中写
-      # 维护者注释，要写就写在这个 workflow 里。
+      # 模板里的占位符 @VERSION@ 换成 Makefile 里的版本号。模板文件只放正文：
+      # 它会被原样发布，别在其中写维护者注释，要写就写在这个 workflow 里。
       - name: 生成 Release 说明
         env:
-          VERSION: ${{ steps.version.outputs.version }}
-          ARCH: ${{ steps.package.outputs.arch }}
-          ASSET: ${{ steps.package.outputs.asset }}
+          VERSION: ${{ needs.version.outputs.version }}
         run: |
           notes="$RUNNER_TEMP/notes.md"
-          sed -e "s/@VERSION@/${VERSION}/g" \
-              -e "s/@ARCH@/${ARCH}/g" \
-              -e "s/@ASSET@/${ASSET}/g" \
-              .github/release-notes-template.md > "$notes"
+          sed -e "s/@VERSION@/${VERSION}/g" .github/release-notes-template.md > "$notes"
 
           # 首个版本没有上界，回退到全部历史；之后按上个 tag 起算。
           prev="$(git describe --tags --abbrev=0 "v${VERSION}^" 2>/dev/null || true)"
@@ -109,12 +143,12 @@ jobs:
           echo "=== 说明预览 ==="
           cat "$notes"
 
-      - name: 创建 Release 并上传 .app
+      - name: 创建 Release 并上传两个 .app
         env:
           GH_TOKEN: ${{ github.token }}
-          ASSET: ${{ steps.package.outputs.asset }}
         run: |
-          gh release create "$GITHUB_REF_NAME" "dist/${ASSET}" \
+          ls -lh dist-assets
+          gh release create "$GITHUB_REF_NAME" dist-assets/*.zip \
             --title "$GITHUB_REF_NAME" \
             --verify-tag \
             --notes-file "$RUNNER_TEMP/notes.md"
