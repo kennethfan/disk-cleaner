@@ -3,16 +3,17 @@
 # 说明：本机 Go 模块缓存位于 ~/.gvm，若在受限沙箱中构建需提升文件权限。
 
 BINARY      := disk-cleaner
-BINARY_WEB  := disk-cleaner-web
 BUILD       := bin
 PKG         := ./cmd/disk-cleaner
-PKG_WEB     := ./cmd/disk-cleaner-web
 APP         := dist/磁盘清理.app
 VERSION := 0.4.0
 
-# WebView 壳的绑定输出目录（由 wails3 生成，见 bindings 目标）
+# WebView 壳的绑定输出目录（由 wails3 生成，见 bindings 目标）。
+# 目录名带 v2：旧目录 bindings/ 下有被 WKWebView 持久缓存住的旧模块
+#（无校验头时代），改名是一次性绕开旧缓存条目；配合 no-store 响应头
+# 之后不会再需要改。
 WEBUI_DIR    := internal/webui
-BINDINGS_DIR := $(WEBUI_DIR)/assets/bindings
+BINDINGS_DIR := $(WEBUI_DIR)/assets/bindings-v2
 
 # 正式签名用的开发者身份。留空则使用 ad-hoc 签名。
 # 用法：make app SIGN_IDENTITY="Developer ID Application: Your Name (TEAMID)"
@@ -21,35 +22,24 @@ SIGN_IDENTITY ?=
 # 公证用的凭据 profile 名（由 make notary-setup 创建）
 NOTARY_PROFILE ?= disk-cleaner-notary
 
-.PHONY: all build build-web run-web bindings test cover vet fmt fmt-check check clean scan dry gui \
+.PHONY: all build bindings test cover vet fmt fmt-check check clean scan dry gui \
         app app-unsigned icon notary-setup notarize verify-sign help
 
 all: check build
 
-## build: 编译两个二进制到 bin/（Fyne 版 + WebView 版）
+## build: 编译单一二进制到 bin/（CLI + WebView 图形界面）
 build:
 	@mkdir -p $(BUILD)
 	go build -trimpath -ldflags "-s -w" -o $(BUILD)/$(BINARY) $(PKG)
-	go build -trimpath -ldflags "-s -w" -o $(BUILD)/$(BINARY_WEB) $(PKG_WEB)
-	@echo "已生成 $(BUILD)/$(BINARY) 与 $(BUILD)/$(BINARY_WEB)"
+	@echo "已生成 $(BUILD)/$(BINARY)"
 
-## build-web: 再生 bindings 后编译 WebView 壳（依赖 wails3 CLI）
+## bindings: 重新生成 WebView 前端绑定（改 internal/webui/service.go 后必须执行）
 #
-# 绑定文件是从 Service 方法生成的接口层，改过 internal/webui/service.go
-# 后必须再生，否则前端调到旧接口（不再生构建也不会发现）。
-build-web: bindings
-	@mkdir -p $(BUILD)
-	go build -trimpath -ldflags "-s -w" -o $(BUILD)/$(BINARY_WEB) $(PKG_WEB)
-	@echo "已生成 $(BUILD)/$(BINARY_WEB)"
-
-## bindings: 重新生成 WebView 前端绑定（改 service.go 后需要；build-web 会自动调用）
+# 绑定文件是从 Service 方法生成的接口层，改过 service.go 后必须再生，
+# 否则前端仍调用旧接口（不再生，构建也不会发现）。
 bindings:
-	cd $(WEBUI_DIR) && wails3 generate bindings -b -d assets/bindings -silent
+	cd $(WEBUI_DIR) && wails3 generate bindings -b -d assets/bindings-v2 -silent
 	@echo "已再生 $(BINDINGS_DIR)"
-
-## run-web: 编译并启动 WebView 图形界面（原型样式）
-run-web: build-web
-	./$(BUILD)/$(BINARY_WEB)
 
 ## gui: 编译并启动图形界面
 gui: build
@@ -173,9 +163,9 @@ fmt-check:
 ## check: 格式 + 静态检查 + 测试
 check: fmt-check vet test
 
-## clean: 清理构建产物与生成的绑定
+## clean: 清理构建产物（保留前端绑定，它们已随仓库提交）
 clean:
-	rm -rf $(BUILD) dist $(BINDINGS_DIR)
+	rm -rf $(BUILD) dist
 
 ## help: 显示可用目标
 help:

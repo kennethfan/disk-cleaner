@@ -1,7 +1,7 @@
 // Command disk-cleaner 是 macOS 磁盘空间清理工具。
 //
-// 阶段 1+2 提供命令行形态：scan 只读预览，clean 需显式 --yes 才执行。
-// 图形界面在阶段 3 接入同一套引擎。
+// 一个二进制两种形态：命令行（scan 只读预览，clean 需显式 --yes）
+// 与 WebView 图形界面（无参数或 gui 启动），二者共用同一套引擎。
 package main
 
 import (
@@ -20,7 +20,7 @@ import (
 	"github.com/kennethfan/disk-cleaner/internal/model"
 	"github.com/kennethfan/disk-cleaner/internal/scan"
 	"github.com/kennethfan/disk-cleaner/internal/trash"
-	"github.com/kennethfan/disk-cleaner/internal/ui"
+	"github.com/kennethfan/disk-cleaner/internal/webui"
 )
 
 func main() {
@@ -28,14 +28,14 @@ func main() {
 	// 这是双击 .app 的启动路径：macOS 通过 open 启动时不会传入任何参数，
 	// 若此处打印用法并退出，双击就会表现为"闪退/无反应"。
 	if len(os.Args) < 2 {
-		if err := ui.Run(); err != nil {
+		if err := webui.Run(); err != nil {
 			fail(err)
 		}
 		return
 	}
 	switch os.Args[1] {
 	case "gui":
-		if err := ui.Run(); err != nil {
+		if err := webui.Run(); err != nil {
 			fail(err)
 		}
 	case "scan":

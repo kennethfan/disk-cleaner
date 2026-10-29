@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>净盘 CleanDisk — macOS 磁盘清理工具 UI 原型</title>
+<title>净盘 CleanDisk</title>
 <style>
 /* ============ Design Tokens（浅色 · macOS 原生风） ============ */
 :root{
@@ -30,47 +30,22 @@
 *{box-sizing:border-box;margin:0;padding:0}
 html,body{height:100%}
 body{
-  background:#e2e3e8;
+  background:var(--bg-window);
   font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text","PingFang SC","Helvetica Neue","Microsoft YaHei",sans-serif;
   color:var(--fg);
   font-size:14px;line-height:1.55;
-  display:flex;align-items:center;justify-content:center;
-  padding:28px 16px;
+  display:flex;
   -webkit-font-smoothing:antialiased;
-}
-button{font:inherit;border:0;background:none;cursor:pointer;color:inherit}
-:focus-visible{outline:2px solid var(--accent);outline-offset:2px;border-radius:4px}
+}button{font:inherit;border:0;background:none;cursor:pointer;color:inherit}
+ :focus-visible{outline:2px solid var(--accent);outline-offset:2px;border-radius:4px}
 
-/* ============ macOS 窗口外框 ============ */
+/* ============ 应用窗口（窗口本身由 WebView 壳提供，页面铺满） ============ */
 .mac-window{
-  width:min(1120px,100%);
-  height:min(740px,calc(100vh - 56px));
-  min-height:560px;
+  width:100%;
+  height:100vh;
   background:var(--bg-window);
-  border-radius:12px;
-  box-shadow:0 24px 80px rgba(0,0,0,.28),0 0 0 1px rgba(0,0,0,.10);
   display:flex;flex-direction:column;
   overflow:hidden;
-}
-.titlebar{
-  height:44px;flex:0 0 44px;
-  display:flex;align-items:center;gap:10px;
-  padding:0 14px;
-  background:rgba(246,246,248,.9);
-  border-bottom:1px solid var(--line);
-  -webkit-backdrop-filter:blur(20px);backdrop-filter:blur(20px);
-  user-select:none;
-}
-.lights{display:flex;gap:8px}
-.light{width:12px;height:12px;border-radius:50%}
-.light.r{background:#ff5f57}.light.y{background:#febc2e}.light.g{background:#28c840}
-.tb-title{
-  flex:1;text-align:center;font-size:13px;font-weight:600;color:var(--fg-2);
-  margin-right:56px; /* 视觉平衡红绿灯 */
-}
-.tb-badge{
-  font-size:11px;font-weight:600;color:var(--fg-2);
-  background:rgba(0,0,0,.05);border-radius:6px;padding:2px 8px;
 }
 
 /* ============ 应用双栏 ============ */
@@ -237,6 +212,11 @@ main{flex:1;display:flex;flex-direction:column;min-width:0}
 .f-path{font-size:11px;color:var(--fg-3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;flex:1}
 .f-age{font-size:11px;color:var(--fg-3);flex:0 0 auto}
 .f-size{font-weight:600;font-size:13px;font-variant-numeric:tabular-nums;flex:0 0 76px;text-align:right}
+/* 不可勾选项的占位标记（永久删除 / 只读） */
+.f-lock{flex:0 0 auto;font-size:10.5px;font-weight:700;color:var(--fg-3);
+  background:rgba(0,0,0,.05);border:1px solid var(--line);border-radius:6px;
+  padding:1px 7px;cursor:default}
+.file-row.locked .f-name,.lf-table tr.locked .lf-name{color:var(--fg-2)}
 
 /* 底部汇总栏 */
 .action-bar{
@@ -365,20 +345,10 @@ main{flex:1;display:flex;flex-direction:column;min-width:0}
 
 @media (max-width:760px){
   .sidebar{display:none}
-  .mac-window{height:calc(100vh - 40px)}
 }
 </style>
 </head>
-<body>
-
-<div class="mac-window">
-  <!-- 标题栏 -->
-  <div class="titlebar">
-    <div class="lights"><span class="light r"></span><span class="light y"></span><span class="light g"></span></div>
-    <div class="tb-title">净盘 CleanDisk</div>
-    <span class="tb-badge">原型 v1.0</span>
-  </div>
-
+<body><div class="mac-window">
   <div class="app">
     <!-- 侧边栏 -->
     <aside class="sidebar">
@@ -423,8 +393,8 @@ main{flex:1;display:flex;flex-direction:column;min-width:0}
               </div>
             </div>
             <div class="hero-info">
-              <h2>Macintosh HD — 494.4 GB</h2>
-              <div class="dim">已用 328.6 GB · 可用 165.8 GB（33.5%）</div>
+              <h2 id="diskTitle">磁盘</h2>
+              <div class="dim" id="diskSub">容量未知</div>
               <div class="disk-bars" id="diskBars"></div>
               <div class="scope-row">
                 <div class="seg" role="group" aria-label="扫描范围">
@@ -547,7 +517,7 @@ main{flex:1;display:flex;flex-direction:column;min-width:0}
 
 <script type="module">
 /* ================= 后端绑定 ================= */
-import * as Service from "./bindings/github.com/kennethfan/disk-cleaner/internal/webui/index.js";
+import * as Service from "./bindings-v2/github.com/kennethfan/disk-cleaner/internal/webui/service.js";
 import { Events } from "/wails/runtime.js";
 
 const GB=1073741824, MB=1048576;
@@ -555,7 +525,7 @@ const $=id=>document.getElementById(id);
 const fmt=b=> b>=GB ? (b/GB).toFixed(1)+' GB' : Math.round(b/MB)+' MB';
 
 /* ================= 数据（来自引擎） ================= */
-let CATS=[], LARGE=[], DISK={total:0,used:0};
+let CATS=[], LARGE=[], DISK={total:0,used:0,free:0,label:''};
 let INIT=null, scanned=false;
 let selected=new Set(), selLarge=new Set();
 let HOME='';
@@ -604,12 +574,9 @@ async function excludeFromFile(key){
 }
 
 /* ================= 扫描范围（全盘 / 指定目录） ================= */
+// 扫描范围以后端配置为准（controller 持久化到 config.yaml）：
+// 页面加载时用 Init().targetPaths 恢复，每次改动都写回后端。
 let SCOPE={mode:'all',dirs:[]};
-try{
-  const s=JSON.parse(localStorage.getItem('cleandisk_scope_v1')||'null');
-  if(s&&(s.mode==='all'||s.mode==='custom')&&Array.isArray(s.dirs))SCOPE=s;
-}catch(e){}
-function saveScope(){try{localStorage.setItem('cleandisk_scope_v1',JSON.stringify(SCOPE));}catch(e){}}
 function scopeDesc(){return SCOPE.mode==='all'?'全盘':(SCOPE.dirs.join('、')||'（未指定目录）');}
 function setScopeScan(){
   Service.SetScope(SCOPE.mode==='all'?[]:SCOPE.dirs).catch(e=>toast('保存扫描范围失败：'+e));
@@ -622,7 +589,7 @@ function renderScope(){
     `<span class="chip">${d}<button class="chip-x" data-i="${i}" aria-label="移除目录 ${d}">×</button></span>`
   ).join('')||'<span class="chip-empty">尚未添加目录，请先添加再扫描</span>';
   $('scopeChips').querySelectorAll('.chip-x').forEach(b=>b.addEventListener('click',()=>{
-    SCOPE.dirs.splice(+b.dataset.i,1);saveScope();setScopeScan();renderScope();
+    SCOPE.dirs.splice(+b.dataset.i,1);setScopeScan();renderScope();
   }));
   const blocked=SCOPE.mode==='custom'&&SCOPE.dirs.length===0;
   $('btnScan').disabled=blocked;
@@ -633,7 +600,7 @@ function addScopeDir(){
   const v=$('scopeInput').value.trim();
   if(!v)return toast('请输入目录路径');
   if(SCOPE.dirs.includes(v))return toast('该目录已在扫描范围内');
-  SCOPE.dirs.push(v);saveScope();setScopeScan();renderScope();
+  SCOPE.dirs.push(v);setScopeScan();renderScope();
   $('scopeInput').value='';
   toast('已添加扫描目录 '+v);
 }
@@ -645,6 +612,14 @@ const catSize=c=>catFiles(c).reduce((a,f)=>a+f.s,0);
 const allFiles=()=>CATS.flatMap(catFiles);
 const largeList=()=>LARGE.map(largeItem);
 const totalReclaim=()=>allFiles().reduce((a,f)=>a+f.s,0)+LARGE.reduce((a,f)=>a+f.s,0);
+/* 永久删除项（废纸篓、APFS 快照）与指定目录扫描结果（只读）
+   一律不可勾选：前者需要 sudo/专用流程，后者删除仍受 guard 白名单约束。 */
+const isSelectable=f=>!f.permanent&&!f.readOnly;
+const lockLabel=f=>f.permanent?'永久':'只读';
+const lockNote=f=>f.permanent?'永久删除项不走废纸篓流程':'指定目录扫描结果仅可查看';
+const selectableFiles=c=>catFiles(c).filter(isSelectable);
+/* 「全选推荐项」只覆盖标为推荐（safe）的分类，高风险分类需逐项手工勾选。 */
+const recommendedKeys=()=>CATS.filter(c=>c.safe).flatMap(c=>selectableFiles(c).map(f=>f.key));
 
 /* ================= 导航 ================= */
 const TITLES={overview:['磁盘概览','上次扫描：从未'],advice:['清理建议','勾选后一次性移入废纸篓'],large:['大文件','按大小排列，支持多选'],exclude:['排除列表','扫描时将完全跳过这些目录'],cleaning:['正在清理',''],done:['清理完成','']};
@@ -668,7 +643,10 @@ function showView(v){
   if(v==='exclude')renderExcludes();
   $('actionBar').classList.toggle('show',v==='advice'&&scanned);
   $('actionBarLarge').classList.toggle('show',v==='large'&&scanned);
-  if(v==='overview')renderOverview();
+  if(v==='overview'){
+    $('viewSub').textContent=scanned?`上次扫描：${scannedAtStr()}`:'上次扫描：从未';
+    renderOverview();
+  }
 }
 function scannedAtStr(){
   const iso=INIT?.scannedAt;
@@ -691,6 +669,8 @@ function renderOverview(){
     : `conic-gradient(#c7c7cc 0 ${pct}%, #e5e5ea ${pct}% 100%)`;
   $('ringBig').textContent=pct+'%';
   $('ringCap').textContent=`已使用 ${(DISK.used/GB).toFixed(1)} GB`;
+  $('diskTitle').textContent=`${DISK.label||'磁盘'} — ${(DISK.total/GB).toFixed(1)} GB`;
+  $('diskSub').textContent=`已用 ${(DISK.used/GB).toFixed(1)} GB · 可用 ${(DISK.free/GB).toFixed(1)} GB（${(DISK.free/DISK.total*100).toFixed(1)}%）`;
   $('miniRing').style.background=`conic-gradient(var(--accent) 0 ${pct}%, #e5e5ea ${pct}% 100%)`;
   $('chipFree').textContent=`可用 ${(DISK.free/GB).toFixed(1)} GB / ${(DISK.total/GB).toFixed(1)} GB`;
   // 分类条
@@ -741,7 +721,11 @@ Events.On('scan:done',ev=>{
   $('navCntLarge').hidden=false; $('navCntLarge').textContent=nl;
   const scopeTxt=SCOPE.mode==='custom'?`（范围：${scopeDesc()}）`:'';
   const emptyHint=(SCOPE.mode==='custom'&&n===0&&nl===0)?' · 指定目录下未发现可清理项':'';
-  toast(`扫描完成，发现 ${fmt(totalReclaim())} 可清理空间${scopeTxt}${emptyHint}`+(EXCLUDES.length?` · 已跳过 ${EXCLUDES.length} 个排除目录`:''));
+  const errN=(rep.errors||[]).length;
+  const exN=rep.excludedCount||0;
+  toast(`扫描完成，发现 ${fmt(totalReclaim())} 可清理空间${scopeTxt}${emptyHint}`
+    +(exN?` · 已排除 ${exN} 项（${fmt(rep.excludedBytes||0)}）`:'')
+    +(errN?` · ${errN} 个扫描器出错`:''));
   showView('advice');
 });
 $('btnScan').addEventListener('click',startScan);
@@ -763,6 +747,9 @@ function applyReport(rep){
   const valid=new Set(allFiles().map(f=>f.key));
   selected=new Set([...selected].filter(k=>valid.has(k)));
   if(rep.errors&&rep.errors.length)rep.errors.forEach(e=>console.warn('扫描器警告:',e));
+  // 新报表一到位就重画列表：扫描完成、刷新页面、清理后刷新都走这里
+  renderCards();
+  renderLargeRows(largeList());
 }
 
 /* ================= 清理建议卡片 ================= */
@@ -780,8 +767,10 @@ function renderCards(){
     </div>
     <div class="cat-files">
       ${catFiles(c).map(f=>`
-       <div class="file-row" data-key="${f.key}">
-         <span class="lf-check" data-key="${f.key}" role="checkbox" tabindex="0" aria-checked="false">✓</span>
+       <div class="file-row${isSelectable(f)?'':' locked'}" data-key="${f.key}">
+         ${isSelectable(f)
+           ? `<span class="lf-check" data-key="${f.key}" role="checkbox" tabindex="0" aria-checked="false">✓</span>`
+           : `<span class="f-lock" title="${lockNote(f)}">${lockLabel(f)}</span>`}
          <span class="f-ico">${c.icon}</span>
          <div style="min-width:0"><div class="f-name">${f.n}</div><div class="f-path">${f.p}</div></div>
          <span class="f-age">${f.note||''}</span>
@@ -812,14 +801,14 @@ function toggleFile(key){
 }
 function toggleCatAll(id){
   const c=CATS.find(x=>x.id===id); if(!c)return;
-  const keys=catFiles(c).map(f=>f.key);
-  const all=keys.every(k=>selected.has(k));
+  const keys=selectableFiles(c).map(f=>f.key);
+  const all=keys.length>0&&keys.every(k=>selected.has(k));
   keys.forEach(k=>all?selected.delete(k):selected.add(k));
   syncUI();
 }
 $('checkAll').addEventListener('click',()=>{
-  const keys=allFiles().map(f=>f.key);
-  const all=keys.every(k=>selected.has(k));
+  const keys=recommendedKeys();
+  const all=keys.length>0&&keys.every(k=>selected.has(k));
   keys.forEach(k=>all?selected.delete(k):selected.add(k));
   syncUI();
 });
@@ -832,7 +821,7 @@ function syncUI(){
     chk.classList.toggle('checked',on); chk.setAttribute('aria-checked',on);
   });
   CATS.forEach(c=>{
-    const keys=catFiles(c).map(f=>f.key);
+    const keys=selectableFiles(c).map(f=>f.key);
     const n=keys.filter(k=>selected.has(k)).length;
     const chk=$('chk-'+c.id); if(!chk)return;
     chk.classList.toggle('checked',n>0);
@@ -845,7 +834,7 @@ function syncUI(){
   $('sumSize').textContent=fmt(size);
   $('sumCount').textContent=`已选 ${sel.length} 个项目`;
   $('btnClean').disabled=sel.length===0;
-  const allKeys=allFiles().map(f=>f.key);
+  const allKeys=recommendedKeys();
   const allOn=allKeys.length>0&&allKeys.every(k=>selected.has(k));
   $('checkAll').classList.toggle('checked',allOn);
   $('checkAll').style.background=allOn?'var(--accent)':'#fff';
@@ -860,28 +849,26 @@ function syncLargeUI(){
 }
 
 /* ================= 大文件表 ================= */
-function renderLarge(){
-  const render=list=>{
-    $('lfBody').innerHTML=list.map(f=>`
-     <tr data-i="${f.key}">
-       <td><span class="lf-check" data-i="${f.key}" role="checkbox" tabindex="0" aria-checked="false">✓</span></td>
+function renderLargeRows(list){
+  $('lfBody').innerHTML=list.map(f=>`
+     <tr data-i="${f.key}"${isSelectable(f)?'':' class="locked"'}>
+       <td>${isSelectable(f)
+         ? `<span class="lf-check" data-i="${f.key}" role="checkbox" tabindex="0" aria-checked="false">✓</span>`
+         : `<span class="f-lock" title="${lockNote(f)}">${lockLabel(f)}</span>`}</td>
        <td><span class="lf-name">🗂 ${f.n}</span></td>
        <td style="color:var(--fg-2);font-size:12px">${f.p}</td>
        <td style="color:var(--fg-3);font-size:12px">${f.note||''}</td>
        <td style="text-align:right;font-weight:600;font-variant-numeric:tabular-nums">${fmt(f.s)}</td>
      </tr>`).join('');
-    $('lfBody').querySelectorAll('.lf-check').forEach(chk=>{
-      chk.addEventListener('click',()=>{
-        const k=chk.dataset.i; selLarge.has(k)?selLarge.delete(k):selLarge.add(k);
-        chk.classList.toggle('checked',selLarge.has(k));chk.setAttribute('aria-checked',selLarge.has(k));syncLargeUI();});
-      chk.addEventListener('keydown',e=>{if(e.key===' '||e.key==='Enter'){e.preventDefault();chk.click();}});
-    });
-    syncLargeUI();
-  };
-  renderLarge._render=render;
-  render(largeList());
+  $('lfBody').querySelectorAll('.lf-check').forEach(chk=>{
+    chk.addEventListener('click',()=>{
+      const k=chk.dataset.i; selLarge.has(k)?selLarge.delete(k):selLarge.add(k);
+      chk.classList.toggle('checked',selLarge.has(k));chk.setAttribute('aria-checked',selLarge.has(k));syncLargeUI();});
+    chk.addEventListener('keydown',e=>{if(e.key===' '||e.key==='Enter'){e.preventDefault();chk.click();}});
+  });
+  syncLargeUI();
 }
-function renderExamples(){/* placeholder to keep API parity */}
+function renderLarge(){ renderLargeRows(largeList()); }
 
 /* ================= 确认弹窗 ================= */
 let confirmCtx=null;
@@ -966,9 +953,9 @@ Events.On('clean:done',async ev=>{
 function lastCleanSupported(){return true;}
 async function refreshReport(){
   const rep=await Service.GetReport();
-  if(rep){applyReport(rep);renderCards();renderLarge._render(largeList());}
+  if(rep)applyReport(rep);
   const all=await Service.Init();
-  DISK={total:all.disk.total,used:all.disk.used,free:all.disk.free};
+  DISK={...all.disk};
   syncUI(); syncLargeUI(); renderScope();
 }
 $('btnUndo').addEventListener('click',async()=>{
@@ -995,7 +982,11 @@ function toast(msg){
 (async()=>{
   INIT=await Service.Init();
   HOME=INIT.home; EXCLUDES=INIT.excludes||[];
-  DISK={total:INIT.disk.total,used:INIT.disk.used,free:INIT.disk.free};
+  DISK={...INIT.disk};
+  // 扫描范围从配置文件恢复，重开应用不丢失
+  SCOPE=(INIT.targetPaths||[]).length
+    ? {mode:'custom',dirs:[...INIT.targetPaths]}
+    : {mode:'all',dirs:[]};
   scanned=!!INIT.hasReport;
   if(scanned){
     const rep=await Service.GetReport();
@@ -1004,13 +995,14 @@ function toast(msg){
     $('navCnt').hidden=n===0;$('navCnt').textContent=n;
     $('navCntLarge').hidden=nl===0;$('navCntLarge').textContent=nl;
   }
+  // 概览标题下的「上次扫描」在启动时也要反映内存中的报表
+  $('viewSub').textContent=scanned?`上次扫描：${scannedAtStr()}`:'上次扫描：从未';
   renderOverview(); renderLarge(); renderExcludes(); renderScope(); syncUI();
-  if(INIT.configWarning)toast('配置警告：'+INIT.configWarning);
 })();
 $('btnAddEx').addEventListener('click',addExclude);
 $('exInput').addEventListener('keydown',e=>{if(e.key==='Enter')addExclude();});
-$('scopeAll').addEventListener('click',()=>{SCOPE.mode='all';saveScope();setScopeScan();renderScope();});
-$('scopeCustom').addEventListener('click',()=>{SCOPE.mode='custom';saveScope();setScopeScan();renderScope();});
+$('scopeAll').addEventListener('click',()=>{SCOPE.mode='all';setScopeScan();renderScope();});
+$('scopeCustom').addEventListener('click',()=>{SCOPE.mode='custom';setScopeScan();renderScope();});
 $('btnAddScope').addEventListener('click',addScopeDir);
 $('scopeInput').addEventListener('keydown',e=>{if(e.key==='Enter')addScopeDir();});
 </script>

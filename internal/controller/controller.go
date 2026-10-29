@@ -1,8 +1,8 @@
 // Package controller 是引擎的门面：持有 scan / clean / guard / trash / config，
-// 并以安全一致的方式向界面层（Fyne 或 WebView 壳）暴露扫描与清理动作。
+// 并以安全一致的方式向界面层（WebView 壳）暴露扫描与清理动作。
 //
-// 它原名位于 internal/ui（app.go），为了把 Fyne 与 Wails 两种壳
-// 分拆到不同二进制（二者的 Objective-C 类引名相撞，无法共链）而独立成包。
+// 它与引擎分处不同包，这样 CLI 与图形界面都能复用同一套动作，
+// 而界面层不直接触碰文件系统。
 package controller
 
 import (

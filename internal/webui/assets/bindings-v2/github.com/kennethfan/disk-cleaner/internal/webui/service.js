@@ -6,9 +6,9 @@
  * Service 是暴露给 WebView 前端的首个绑定服务。
  * 
  * 它是 controller.Controller 的薄包装：扫描、排除、清理与撤销都走与
- * Fyne 界面、CLI 完全相同的引擎路径。长耗时动作（扫描/清理）在
- * 后台 goroutine 中执行，进度通过 CustomEvent 推送给前端，
- * 暂停/取消仍然由 Controller 维护的唯一 Gate 控制。
+ * CLI 完全相同的引擎路径。长耗时动作（扫描/清理）在后台 goroutine
+ * 中执行，进度通过 CustomEvent 推送给前端，暂停/取消仍然由
+ * Controller 维护的唯一 Gate 控制。
  * @module
  */
 
@@ -39,6 +39,10 @@ export function CancelScan() {
 }
 
 /**
+ * Clean 把 keys 指到的项目逐个移入废纸篓（后台执行）。
+ * 每完成一项推送 "clean:one"，全部结束后推送 "clean:done"。
+ * 
+ * guard 拒绝的项会被标记为 skipped，不会计入失败。
  * @param {string[]} keys
  * @returns {$CancellablePromise<void>}
  */

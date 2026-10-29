@@ -20,9 +20,9 @@ import (
 // Service 是暴露给 WebView 前端的首个绑定服务。
 //
 // 它是 controller.Controller 的薄包装：扫描、排除、清理与撤销都走与
-// Fyne 界面、CLI 完全相同的引擎路径。长耗时动作（扫描/清理）在
-// 后台 goroutine 中执行，进度通过 CustomEvent 推送给前端，
-// 暂停/取消仍然由 Controller 维护的唯一 Gate 控制。
+// CLI 完全相同的引擎路径。长耗时动作（扫描/清理）在后台 goroutine
+// 中执行，进度通过 CustomEvent 推送给前端，暂停/取消仍然由
+// Controller 维护的唯一 Gate 控制。
 type Service struct {
 	ctrl *controller.Controller
 
@@ -329,7 +329,8 @@ func (s *Service) view(skip map[string]bool) *Report {
 	return r
 }
 
-// scanSegmentOrder 覆盖全部已知类别；未知类别（新扫描器）排在末尾。_ = i
+// scanSegmentOrder 按固定顺序返回全部已知类别，保证界面分组顺序稳定；
+// 未知类别（将来新增的扫描器）不会出现在这里，会落到 catMeta 的兜底分支。
 func scanSegmentOrder() []model.Category {
 	return []model.Category{
 		model.CategoryUserCache,
@@ -379,33 +380,47 @@ type CleanDonePayload struct {
 	Freed     int64 `json:"freed"`
 }
 
-// Clean 把 keys 指到的项目逐个移入废纸篓（后台执行）。
-// 每完成一项推送 "clean:one"，全部结束后推送 "clean:done"。
-//
-//	guard 拒绝的项会被标记为 skipped，不会计入失败。
-//
 // keyedItem 把前端 key 和真实 Item 配对，清理时按 key 回报进度。
 type keyedItem struct {
 	key string
 	it  model.Item
 }
 
-func (s *Service) Clean(keys []string) error {
+// selectItems 把前端 key 解析成可清理的项。
+//
+// 两类项在这里就被挡住，而不是等引擎运行后才失败：
+//   - Permanent（废纸篓内容、APFS 快照）不走废纸篓流程，需要 sudo/专用流程
+//   - ReadOnly（指定目录扫描结果）仅可浏览，删除仍受 guard 白名单约束
+//
+// 按大小降序排序，先清大项；进度通过 key 对齐，与前端行序无关。
+func (s *Service) selectItems(keys []string) ([]keyedItem, error) {
 	pairs := make([]keyedItem, 0, len(keys))
 	for _, k := range keys {
 		it, ok := s.keyOf(k)
 		if !ok {
-			return fmt.Errorf("无法识别的项目 key: %s", k)
+			return nil, fmt.Errorf("无法识别的项目 key: %s", k)
 		}
 		if it.Permanent {
-			// 永久删除项不在 Web 壳的授权范围内，
-			// 引擎不会走废纸篓流程，这里在入口就挡住。
-			return fmt.Errorf("该项不支持移入废纸篓: %s", it.DisplayName)
+			return nil, fmt.Errorf("该项不支持移入废纸篓: %s", it.DisplayName)
+		}
+		if it.ReadOnly {
+			return nil, fmt.Errorf("该项仅可查看，不能清理: %s", it.DisplayName)
 		}
 		pairs = append(pairs, keyedItem{key: k, it: it})
 	}
-	// 按大小降序先清大项（与前端行序无关，进度通过 key 对齐）。
 	sort.SliceStable(pairs, func(i, j int) bool { return pairs[i].it.Size > pairs[j].it.Size })
+	return pairs, nil
+}
+
+// Clean 把 keys 指到的项目逐个移入废纸篓（后台执行）。
+// 每完成一项推送 "clean:one"，全部结束后推送 "clean:done"。
+//
+// guard 拒绝的项会被标记为 skipped，不会计入失败。
+func (s *Service) Clean(keys []string) error {
+	pairs, err := s.selectItems(keys)
+	if err != nil {
+		return err
+	}
 	items := make([]model.Item, 0, len(pairs))
 	for _, p := range pairs {
 		items = append(items, p.it)
