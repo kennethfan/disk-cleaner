@@ -45,9 +45,17 @@ Intel 与 Apple Silicon 均可构建，未做交叉编译，产物与构建机�
 
 ## 安装
 
-本仓库**暂不发布预编译安装包**，从源码构建即可。产物是单一二进制，不向系统目录写入任何东西。
+每次发版会在 [Releases](https://github.com/kennethfan/disk-cleaner/releases) 附上打包好的 `.app`，也可以从源码构建。产物是单一二进制，不向系统目录写入任何东西。
 
-### 方式一：命令行工具（推荐）
+### 方式一：下载 .app（最省事）
+
+从 [Releases](https://github.com/kennethfan/disk-cleaner/releases) 下载 `disk-cleaner-v*-macos-<arch>-adhoc.app.zip`：
+
+- `<arch>` 是构建架构：Intel Mac 用 `x86_64`，Apple Silicon 用 `arm64`。工具不交叉编译，下错架构打不开
+- 解压得到「磁盘清理.app」，拖进 `/Applications`
+- 附件是 **ad-hoc 签名、未公证** 的，首次打开会被 Gatekeeper 拦下：Finder 里右键 →「打开」，或执行 `xattr -dr com.apple.quarantine "/Applications/磁盘清理.app"`
+
+### 方式二：命令行工具（推荐自己构建）
 
 ```bash
 make build
@@ -58,7 +66,7 @@ export PATH="$PWD/bin:$PATH"
 disk-cleaner scan
 ```
 
-### 方式二：可双击的 .app
+### 方式三：自己打包可双击的 .app
 
 ```bash
 make app
@@ -80,8 +88,8 @@ macOS 会在访问其他应用数据时弹权限提示。要在结果里看到 `
 ### 卸载
 
 ```bash
-rm -f /usr/local/bin/disk-cleaner      # 方式一装进去的二进制
-rm -rf "/Applications/磁盘清理.app"      # 方式二拖进应用程序的
+rm -f /usr/local/bin/disk-cleaner      # 方式二装进去的二进制
+rm -rf "/Applications/磁盘清理.app"      # 方式一或三得到的 .app
 rm -rf ~/.config/disk-cleaner          # 排除规则与扫描范围配置
 ```
 

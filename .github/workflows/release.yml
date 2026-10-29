@@ -1,7 +1,6 @@
 name: Release
 
-# 推 tag 即发版：v* 触发，通过 CI 同款闸门后创建 GitHub Release。
-# 不挂预编译产物（见 README「安装」：仅从源码构建），只发布源码与自动生成的说明。
+# 推 tag 即发版：v* 触发，通过 CI 同款闸门后，构建 .app 作为附件并创建 GitHub Release。
 on:
   push:
     tags:
@@ -17,7 +16,8 @@ jobs:
     steps:
       - uses: actions/checkout@v7
         with:
-          # gh release --generate-notes 需要完整 tag 历史才能算出与上个版本的差异
+          # 变更列表要拿上一个 tag 做上界，版本号校验也要看到全部 tag，
+          # 所以必须是完整历史。
           fetch-depth: 0
 
       - uses: actions/setup-go@v7
@@ -28,6 +28,7 @@ jobs:
       # .app 的 Info.plist 版本号来自 Makefile 的 VERSION，
       # tag 与它不一致会发出一个版本号对不上的 release，这里直接拦住。
       - name: 校验 tag 与 Makefile VERSION 一致
+        id: version
         run: |
           tag="${GITHUB_REF_NAME#v}"
           make_version=$(sed -n 's/^VERSION := //p' Makefile)
@@ -36,13 +37,12 @@ jobs:
             exit 1
           fi
           echo "版本一致: $make_version"
+          echo "version=$make_version" >> "$GITHUB_OUTPUT"
 
       # 发布 commit 必须格式、vet、测试全过，与 CI 是同一道闸门。
       - name: 格式检查 + 静态检查 + 单元测试
         run: make check
 
-      # 不发产物，但 tag 指向的 commit 必须真能构建出二进制与 .app，
-      # 否则这个 tag 本身就是坏的。
       - name: 构建二进制与 .app
         run: |
           make build
@@ -51,11 +51,66 @@ jobs:
           test -x "dist/磁盘清理.app/Contents/MacOS/disk-cleaner"
           codesign --verify --deep --strict "dist/磁盘清理.app"
 
-      - name: 创建 Release
+      # 附件是给他人双击用的，所以架构必须写进文件名：runner 是 Apple Silicon
+      # 时产物为 arm64，Intel 上构建则不同，不标注对方下错了只会看到闪退。
+      - name: 打包 .app 为可分发的 zip
+        id: package
+        run: |
+          version="${{ steps.version.outputs.version }}"
+          arch="$(uname -m)"
+          # 文件名保持 ASCII：下载链接、解压工具、日志里都不会踩编码问题。
+          asset="disk-cleaner-v${version}-macos-${arch}-adhoc.app.zip"
+          # 必须用 ditto 而非 zip：zip 会丢掉符号链接与扩展属性，解压出来的
+          # .app 过不了 codesign 校验，双击直接报「已损坏」。
+          ditto -c -k --keepParent "dist/磁盘清理.app" "dist/${asset}"
+          # 解压回临时目录验签，确认附件本身（而不只是构建产物）是完好的。
+          ditto -x -k "dist/${asset}" "$RUNNER_TEMP/unzip"
+          codesign --verify --deep --strict "$RUNNER_TEMP/unzip/磁盘清理.app"
+          # 附件里的 .app 保留中文名（Finder 解压正常），所以不列 unzip -l：
+          # macOS 的 unzip 会把中文名打印成乱码，日志里只会制造噪音。
+          ls -lh "dist/${asset}"
+          echo "asset=${asset}" >> "$GITHUB_OUTPUT"
+          echo "arch=${arch}" >> "$GITHUB_OUTPUT"
+
+      # 说明正文用仓库内模板（安装、Gatekeeper 放行、环境要求），
+      # 变更列表由 git log 追加——本仓库直推、不走 PR，
+      # gh 的 --generate-notes 在这种历史下只剩一行 Full Changelog。
+      - name: 生成 Release 说明
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+          ARCH: ${{ steps.package.outputs.arch }}
+          ASSET: ${{ steps.package.outputs.asset }}
+        run: |
+          notes="$RUNNER_TEMP/notes.md"
+          sed -e "s/@VERSION@/${VERSION}/g" \
+              -e "s/@ARCH@/${ARCH}/g" \
+              -e "s/@ASSET@/${ASSET}/g" \
+              .github/release-notes-template.md > "$notes"
+
+          # 首个版本没有上界，回退到全部历史；之后按上个 tag 起算。
+          prev="$(git describe --tags --abbrev=0 "v${VERSION}^" 2>/dev/null || true)"
+          if [ -n "$prev" ]; then
+            range="${prev}..${GITHUB_REF_NAME}"
+            echo "变更范围: ${range}"
+          else
+            range="${GITHUB_REF_NAME}"
+            echo "首个版本，变更范围: 全部历史"
+          fi
+
+          echo >> "$notes"
+          if ! git log --no-merges --pretty='- %s (`%h`)' "$range" >> "$notes"; then
+            echo "- 详见提交历史" >> "$notes"
+          fi
+
+          echo "=== 说明预览 ==="
+          cat "$notes"
+
+      - name: 创建 Release 并上传 .app
         env:
           GH_TOKEN: ${{ github.token }}
+          ASSET: ${{ steps.package.outputs.asset }}
         run: |
-          gh release create "$GITHUB_REF_NAME" \
+          gh release create "$GITHUB_REF_NAME" "dist/${ASSET}" \
             --title "$GITHUB_REF_NAME" \
             --verify-tag \
-            --generate-notes
+            --notes-file "$RUNNER_TEMP/notes.md"
