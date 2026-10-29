@@ -1,6 +1,7 @@
 # 构建产物
 /bin/
 /dist/
+/disk-cleaner
 *.app
 
 # 测试与覆盖率

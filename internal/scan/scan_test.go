@@ -323,41 +323,52 @@ func TestUserCacheScannerSplitsCaches(t *testing.T) {
 	}
 }
 
-// TestUserCacheScannerSplitsDotCache 验证 ~/.cache 归用户缓存（速查卡 A 类），
-// 并按子目录拆分（~/.cache 本身是 guard 根，整条列出会变成只读项）。
+// TestUserCacheScannerSplitsDotCache 验证 ~/.cache 按子目录拆分
+// （~/.cache 本身是 guard 根，整条列出会变成只读项），
+// 并按目录名把开发工具缓存分到开发缓存、其余留作应用缓存。
 func TestUserCacheScannerSplitsDotCache(t *testing.T) {
 	home := t.TempDir()
 	dotCache := filepath.Join(home, ".cache")
-	opencode := filepath.Join(dotCache, "opencode")
-	if err := os.MkdirAll(opencode, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(opencode, "blob"), make([]byte, 1024), 0o644); err != nil {
-		t.Fatal(err)
+	opencode := filepath.Join(dotCache, "opencode") // 开发工具缓存
+	plain := filepath.Join(dotCache, "someapp")     // 普通应用缓存
+	for _, dir := range []string{opencode, plain} {
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(dir, "blob"), make([]byte, 1024), 0o644); err != nil {
+			t.Fatal(err)
+		}
 	}
 
 	items, err := NewUserCacheScanner(Options{Home: home}).Scan(context.Background())
 	if err != nil {
 		t.Fatalf("Scan: %v", err)
 	}
-	var found bool
+	got := make(map[string]model.Item, len(items))
 	for _, it := range items {
 		if it.Path == dotCache {
 			t.Error("不应产出 ~/.cache 整条（guard 会拒绝根目录本身）")
 		}
-		if it.Path != opencode {
-			continue
-		}
-		found = true
-		if it.Category != model.CategoryUserCache {
-			t.Errorf("~/.cache/opencode 应归用户缓存, got %s", it.Category)
-		}
-		if it.Risk != model.RiskLow {
-			t.Errorf("~/.cache/opencode 风险应为低, got %v", it.Risk)
-		}
+		got[it.Path] = it
 	}
-	if !found {
-		t.Error("~/.cache 的子目录应作为用户缓存项出现")
+
+	dev, ok := got[opencode]
+	if !ok {
+		t.Fatal("~/.cache/opencode 应出现在拆分结果里")
+	}
+	if dev.Category != model.CategoryDevCache {
+		t.Errorf("~/.cache/opencode 是开发工具缓存，应归开发缓存, got %s", dev.Category)
+	}
+	if dev.Risk != model.RiskLow {
+		t.Errorf("~/.cache/opencode 风险应为低, got %v", dev.Risk)
+	}
+
+	app, ok := got[plain]
+	if !ok {
+		t.Fatal("~/.cache 里的普通应用缓存应保留为用户缓存项")
+	}
+	if app.Category != model.CategoryUserCache {
+		t.Errorf("~/.cache/someapp 应归用户缓存, got %s", app.Category)
 	}
 
 	devItems, err := NewDevCacheScanner(Options{Home: home}).Scan(context.Background())
@@ -365,8 +376,8 @@ func TestUserCacheScannerSplitsDotCache(t *testing.T) {
 		t.Fatalf("DevCache Scan: %v", err)
 	}
 	for _, it := range devItems {
-		if it.Path == opencode || it.Path == dotCache {
-			t.Error("~/.cache 不应再由开发缓存扫描器产出")
+		if it.Path == opencode || it.Path == plain || it.Path == dotCache {
+			t.Error("~/.cache 的子目录不应再由开发缓存扫描器重复产出")
 		}
 	}
 }
@@ -581,6 +592,111 @@ func TestScanAllClassifiesDevCachesUnderLibraryCaches(t *testing.T) {
 		if counts[path] != 1 {
 			t.Errorf("%s 应只出现 1 次, got %d", path, counts[path])
 		}
+	}
+}
+
+// TestIsDevCacheName 验证缓存根子目录名的归类判定：
+// 带版本号/后缀的开发者工具目录要能命中，普通应用目录不能误命中。
+func TestIsDevCacheName(t *testing.T) {
+	dev := []string{"AndroidStudio2.3", "go-build", "ms-playwright-go", "typescript", "Zed", "zig", "JetBrains", "pip", "pnpm", "opencode"}
+	for _, name := range dev {
+		if !isDevCacheName(name) {
+			t.Errorf("%s 应判为开发缓存目录", name)
+		}
+	}
+	app := []string{"Google", "GeoServices", "com.apple.Safari", "SogouServices", "LarkShell", "com.tencent.xinWeChat"}
+	for _, name := range app {
+		if isDevCacheName(name) {
+			t.Errorf("%s 是应用缓存目录，不应判为开发缓存", name)
+		}
+	}
+}
+
+// TestScanAllClassifiesVersionedDevCacheNames 验证 ~/Library/Caches 下
+// 不在静态名单里、靠名字识别的开发缓存（AndroidStudio2.3、typescript）
+// 同样归开发缓存，且每个路径只出现一次。
+func TestScanAllClassifiesVersionedDevCacheNames(t *testing.T) {
+	names := []string{"AndroidStudio2.3", "typescript", "ms-playwright-go"}
+	home := t.TempDir()
+	wanted := make(map[string]bool, len(names))
+	for _, name := range names {
+		dir := filepath.Join(home, "Library", "Caches", name)
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(dir, "blob"), make([]byte, 1024), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		wanted[dir] = true
+	}
+
+	opts := Options{Home: home, Concurrency: 4}
+	report := ScanAll(context.Background(), All(opts), opts)
+
+	counts := make(map[string]int, len(names))
+	for _, it := range report.Items {
+		if !wanted[it.Path] {
+			continue
+		}
+		counts[it.Path]++
+		if it.Category != model.CategoryDevCache {
+			t.Errorf("%s 应归开发缓存, got %s", it.Path, it.Category)
+		}
+	}
+	for path := range wanted {
+		if counts[path] != 1 {
+			t.Errorf("%s 应只出现 1 次, got %d", path, counts[path])
+		}
+	}
+}
+
+// TestDevCacheRiskLevelsMatchCheatSheet 验证开发缓存风险等级与速查卡一致：
+// DerivedData 黄（中）、Maven 绿（低）、Docker 黄（中）。
+func TestDevCacheRiskLevelsMatchCheatSheet(t *testing.T) {
+	want := map[string]model.Risk{
+		"Library/Developer/Xcode/DerivedData":           model.RiskMedium,
+		".m2/repository":                                model.RiskLow,
+		"Library/Containers/com.docker.docker/Data/vms": model.RiskMedium,
+	}
+	for _, target := range devTargets() {
+		risk, ok := want[target.rel]
+		if !ok {
+			continue
+		}
+		if target.risk != risk {
+			t.Errorf("%s 风险 = %v, 期望 %v", target.rel, target.risk, risk)
+		}
+		delete(want, target.rel)
+	}
+	for rel := range want {
+		t.Errorf("未找到开发缓存目标 %s", rel)
+	}
+}
+
+// TestSystemCacheRiskLevelsMatchCheatSheet 验证系统缓存与日志风险等级：
+// var/log 与 /Library/Caches 黄（中），~/Library/Logs 低。
+func TestSystemCacheRiskLevelsMatchCheatSheet(t *testing.T) {
+	want := map[string]model.Risk{
+		"/private/var/log/asl": model.RiskMedium,
+		"/Library/Caches":      model.RiskMedium,
+		"Library/Logs":         model.RiskLow,
+	}
+	for _, target := range systemCacheTargets() {
+		key := target.path
+		if key == "" {
+			key = target.rel
+		}
+		risk, ok := want[key]
+		if !ok {
+			continue
+		}
+		if target.risk != risk {
+			t.Errorf("%s 风险 = %v, 期望 %v", key, target.risk, risk)
+		}
+		delete(want, key)
+	}
+	for key := range want {
+		t.Errorf("未找到系统缓存目标 %s", key)
 	}
 }
 
