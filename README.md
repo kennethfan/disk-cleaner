@@ -2,7 +2,90 @@
 
 macOS 磁盘空间清理工具。扫描可清理内容，预览确认后移入废纸篓（可恢复）。
 
-当前进度：**阶段 1-4 已完成** —— 扫描引擎、安全删除、单元测试、WebView 图形界面、应用图标、签名与公证流程全部就绪。
+单一二进制，命令行与图形界面共用同一套扫描/清理引擎；不装守护进程，不联网，不上传任何文件信息。
+
+- **只读扫描**：`scan` 只产出清单，不动任何文件
+- **删前必看**：清理前逐项确认；删除 = 移入废纸篓，可一键撤销
+- **不该删的删不掉**：所有删除经 `internal/guard` 白名单校验，`/System`、`/usr`、`~/.ssh`、`~/Documents` 等硬性保护
+- **风险分级**：低（纯缓存，自动重建）/ 中（需重新下载或生成）/ 高（可能丢用户数据）
+
+## 快速上手
+
+```bash
+git clone https://github.com/kennethfan/disk-cleaner.git
+cd disk-cleaner
+make build                 # 产出 bin/disk-cleaner
+./bin/disk-cleaner         # 不带参数直接打开图形界面
+```
+
+图形界面里三步：
+
+1. 点「✨ 开始智能扫描」等进度跑完（全盘通常几十秒，大目录可随时「暂停」）
+2. 在「清理建议」里看分类与明细，勾选要清的项（「全选推荐项」只覆盖推荐分类且只选低风险条目）
+3. 点「🗑 安全清理」，二次确认后逐项移入废纸篓；后悔就点「↩︎ 撤销本次清理」
+
+命令行等价流程：
+
+```bash
+./bin/disk-cleaner scan                                  # 只读预览
+./bin/disk-cleaner clean --category 用户缓存 --dry-run    # 看清会做什么
+./bin/disk-cleaner clean --category 用户缓存              # 交互确认后执行
+```
+
+## 环境要求
+
+| 项目 | 要求 |
+|---|---|
+| 系统 | macOS 11（Big Sur）及以上 |
+| Go | 1.26+（见 `go.mod`） |
+| 构建工具 | Xcode Command Line Tools（`xcode-select --install`）；WebView 壳依赖 cgo |
+| 可选 | 重新生成前端绑定需要 `wails3` CLI；重新生成图标需要 Python3 + Pillow |
+
+Intel 与 Apple Silicon 均可构建，未做交叉编译，产物与构建机架构一致。
+
+## 安装
+
+本仓库**暂不发布预编译安装包**，从源码构建即可。产物是单一二进制，不向系统目录写入任何东西。
+
+### 方式一：命令行工具（推荐）
+
+```bash
+make build
+sudo install -m 755 bin/disk-cleaner /usr/local/bin/
+# 或者把 bin/ 加进 PATH，不想污染系统目录时更省事
+export PATH="$PWD/bin:$PATH"
+
+disk-cleaner scan
+```
+
+### 方式二：可双击的 .app
+
+```bash
+make app
+open "dist/磁盘清理.app"         # 或把 .app 拖进 /Applications
+```
+
+`make app` 产出的是 **ad-hoc 签名**（未公证）：自己构建、自己这台机器打开正常；把 .app 拷给别人时，对方首次打开会被 Gatekeeper 拦下，需在 Finder 里右键 →「打开」，或执行：
+
+```bash
+xattr -dr com.apple.quarantine "/path/to/磁盘清理.app"
+```
+
+有 Apple 开发者账号时可正式签名并公证（`make app SIGN_IDENTITY=...` → `make notary-setup` → `make notarize`），细节见 [docs/signing.md](docs/signing.md)。
+
+### 首次运行
+
+macOS 会在访问其他应用数据时弹权限提示。要在结果里看到 `~/Library/Mail`、`~/Library/Messages` 这类目录的占用，需到 **系统设置 → 隐私与安全性 → 完全磁盘访问权限** 里手动添加终端（或「磁盘清理.app」）并重启它。不加也能用，只是这些目录被跳过、大小统计偏小。
+
+### 卸载
+
+```bash
+rm -f /usr/local/bin/disk-cleaner      # 方式一装进去的二进制
+rm -rf "/Applications/磁盘清理.app"      # 方式二拖进应用程序的
+rm -rf ~/.config/disk-cleaner          # 排除规则与扫描范围配置
+```
+
+清理掉的内容都在废纸篓里，确认无用后清空废纸篓才真正释放空间。
 
 ## 设计原则
 
@@ -30,27 +113,13 @@ macOS 磁盘空间清理工具。扫描可清理内容，预览确认后移入�
 
 | 等级 | 含义 | 例子 |
 |---|---|---|
-| 低 | 纯缓存，自动重建 | `~/Library/Caches`、`~/.npm/_cacache` |
-| 中 | 需重新下载或生成 | 模拟器镜像、Maven 仓库、大文件 |
-| 高 | 可能丢失用户数据 | Docker 虚拟机数据、废纸篓、APFS 快照 |
+| 低 | 纯缓存，自动重建 | `~/Library/Caches`、`~/.npm/_cacache`、Maven 本地仓库 |
+| 中 | 需重新下载或生成 | Xcode DerivedData、模拟器镜像、Docker 虚拟机数据、大文件 |
+| 高 | 可能丢失用户数据 | 废纸篓内容、APFS 快照 |
 
 **5. 永久删除项单独隔离**
 
 废纸篓内容、APFS 快照标记为 `Permanent`，**不走**废纸篓流程（它们已在废纸篓里，或需 sudo），由专用流程处理。
-
-## 安装与构建
-
-```bash
-make build          # 编译到 bin/disk-cleaner
-make app            # 打包为 dist/磁盘清理.app（含图标 + ad-hoc 签名）
-make icon           # 从 packaging/icon-source.png 重新生成 .icns
-make test           # 单元测试
-make cover          # 覆盖率
-make check          # 格式 + vet + 测试
-make help           # 列出全部目标
-```
-
-> 注意：本机 Go 模块缓存位于 `~/.gvm`。若在受限沙箱中构建，需提升文件访问权限，否则会报 `open .../sumdb/...: operation not permitted`。
 
 ## 图形界面
 
@@ -131,7 +200,7 @@ make verify-sign
 
 详细说明、失败排查与不公证的分发方式见 [docs/signing.md](docs/signing.md)。
 
-> **本机当前无代码签名证书**（`security find-identity -v -p codesigning` 返回 0 个），因此只能产出 ad-hoc 版本。拿到证书后上述命令可直接使用，无需改代码。
+> 没有证书时 `make app` 仍可用，产出 ad-hoc 版本（仅本机可双击）；拿到证书后上述命令可直接使用，无需改代码。检查本机现有证书可用 `security find-identity -v -p codesigning`。
 
 ## 使用
 
@@ -149,6 +218,26 @@ disk-cleaner scan --path ~/Downloads --path ~/Movies
 # 临时排除（叠加配置文件中的规则）
 disk-cleaner scan --exclude node_modules --exclude "*.log"
 ```
+
+### 清理
+
+```bash
+# 先 dry-run 看会做什么
+disk-cleaner clean --category 用户缓存 --dry-run
+
+# 确认后执行（会交互确认）
+disk-cleaner clean --category 用户缓存
+
+# 同时清理多个类别
+disk-cleaner clean --category 用户缓存 --category 开发缓存
+
+# 脚本场景跳过确认（谨慎）
+disk-cleaner clean --category 开发缓存 --yes
+```
+
+可用类别：`用户缓存`、`系统缓存`、`开发缓存`、`大文件`、`垃圾文件`、`APFS 快照`。
+
+类别名拼错会明确报错，不会静默当作「无匹配」。
 
 ## 排除列表
 
@@ -211,38 +300,37 @@ disk-cleaner scan --path ~/Downloads
 
 这样做是因为：允许浏览任意目录很有用，但把任意目录变成"可删除"风险太高。想清理某个缓存目录，用默认扫描；想了解某个目录的构成，用指定目录扫描。
 
-### 清理
-
-```bash
-# 先 dry-run 看会做什么
-disk-cleaner clean --category 用户缓存 --dry-run
-
-# 确认后执行（会交互确认）
-disk-cleaner clean --category 用户缓存
-
-# 同时清理多个类别
-disk-cleaner clean --category 用户缓存 --category 开发缓存
-
-# 脚本场景跳过确认（谨慎）
-disk-cleaner clean --category 开发缓存 --yes
-```
-
-可用类别：`用户缓存`、`系统缓存`、`开发缓存`、`大文件`、`垃圾文件`、`APFS 快照`。
-
-类别名拼错会明确报错，不会静默当作「无匹配」。
-
 ## 扫描覆盖范围
 
 | 类别 | 覆盖内容 |
 |---|---|
-| 用户缓存 | `~/Library/Caches`、`~/Library/Logs`、`~/Library/Saved Application State` |
-| 系统缓存 | `/Library/Caches`、`/private/var/log/asl` |
+| 用户缓存 | `~/Library/Caches`、`~/.cache`、`~/Library/Saved Application State`（按子目录拆分后归入非开发类缓存） |
+| 系统缓存 | `/Library/Caches`、`/private/var/log/asl`、`~/Library/Logs` |
 | 开发缓存 | Xcode DerivedData/DeviceSupport/模拟器、npm/yarn/pnpm/bun、Gradle/Maven、Cargo、Go modules、pip、`~/.cache`、Docker |
 | 大文件 | Downloads/Documents/Desktop/Movies/Pictures/Application Support 下超阈值文件（最多 50 条） |
 | 垃圾文件 | `~/.Trash`、iOS 备份、下载目录中 90 天未修改的文件 |
 | APFS 快照 | `tmutil listlocalsnapshots` |
 
 所有目标在**运行时探测存在性** —— 不存在的目录不会产生任何条目，也不会报错。
+
+`~/Library/Caches` 与 `~/.cache` 混着应用缓存和开发者工具缓存，拆分时按子目录名归类：命中开发者工具（`AndroidStudio2.3`、`go-build`、`zig`、`npm`、`opencode` 等）的归「开发缓存」，其余归「用户缓存」。判定只认确定性高的工具名前缀 —— 宁可漏判成应用缓存，也不把应用数据误标成可随构建重建的缓存。
+
+## 常见问题
+
+**双击 .app 没反应 / 提示「已损坏或无法验证」**
+ad-hoc 签名 + Gatekeeper 的典型表现。右键 →「打开」，或 `xattr -dr com.apple.quarantine`；排查签名状态用 `make verify-sign`。
+
+**扫描结果比 Finder 显示的小**
+部分目录需要「完全磁盘访问权限」，无权时被跳过（见下方已知限制）。
+
+**构建报 `open .../sumdb/...: operation not permitted`**
+Go 模块缓存所在目录被沙箱限制，给构建环境放宽该目录的访问权限即可，与代码无关。
+
+**APFS 快照删不掉**
+工具不主动提权，快照项只提供命令：`sudo tmutil deletelocalsnapshots <日期>`。
+
+**改了 `internal/webui/service.go` 但界面没变化**
+前端绑定是生成物，需 `make bindings` 再生，否则界面仍在调旧接口。
 
 ## 已知限制
 
@@ -280,7 +368,7 @@ disk-cleaner/
 
 ## 测试
 
-30+ 个单元测试，重点覆盖安全边界：
+30+ 个单元测试，重点覆盖安全边界（`make check` 一次跑完格式检查 + vet + 全部测试）：
 
 - **guard**：`..` 穿越、受保护路径、根目录本身、白名单外、前缀混淆（`Library2` vs `Library`）
 - **trash**：重名不覆盖、目录递归、符号链接保留、跨卷复制、序号递增
