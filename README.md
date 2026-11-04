@@ -291,7 +291,7 @@ exclude:
 
 **生效环节**（两处，缺一不可）：
 
-1. **扫描结果过滤**：6 个扫描器产出的项若命中规则，直接丢弃
+1. **扫描结果过滤**：8 个扫描器产出的项若命中规则，直接丢弃
 2. **子目录展开过滤**：展开目录时，被排除的子项同样不出现
 
 两处都做是因为：只过滤扫描结果的话，被排除的目录虽然不在初始列表里，展开父目录时仍会重新冒出来。
@@ -329,12 +329,16 @@ disk-cleaner scan --path ~/Downloads
 
 | 类别 | 覆盖内容 |
 |---|---|
-| 用户缓存 | `~/Library/Caches`、`~/.cache`、`~/Library/Saved Application State`（按子目录拆分后归入非开发类缓存） |
+| 用户缓存 | `~/Library/Caches`、`~/.cache`、`~/Library/Saved Application State`（按子目录拆分后归入非开发类缓存）、容器内 `Data/Library/Caches`、`Application Support` 下明确叫 Cache / Code Cache 的子目录 |
 | 系统缓存 | `/Library/Caches`、`/private/var/log/asl`、`~/Library/Logs` |
 | 开发缓存 | Xcode DerivedData/DeviceSupport/模拟器、npm/yarn/pnpm/bun、Gradle/Maven、Cargo、Go modules、pip、`~/.cache`、Docker |
 | 大文件 | Downloads/Documents/Desktop/Movies/Pictures/Application Support 下超阈值文件（最多 50 条） |
-| 垃圾文件 | `~/.Trash`、iOS 备份、下载目录中 90 天未修改的文件 |
+| 垃圾文件 | `~/.Trash`、下载目录中 90 天未修改的文件 |
 | APFS 快照 | `tmutil listlocalsnapshots` |
+
+上表是**类别**（6 个，界面按它分组）；产出这些项的**扫描器**有 8 个——用户缓存与容器缓存各自独立，容器缓存只清 `Caches`、不碰应用数据与登录态。
+
+iOS 备份（`Application Support/MobileSync`）**不在清理范围**：与 Chrome 用户数据、Docker 虚拟机目录一起列入红线，扫描阶段整棵跳过。删除它们等于丢用户数据，不在一个"可随时撤销"的工具该做的事里。
 
 所有目标在**运行时探测存在性** —— 不存在的目录不会产生任何条目，也不会报错。
 
@@ -389,7 +393,7 @@ disk-cleaner/
     ├── gate/                扫描暂停门闩（可逆，区别于 ctx 取消）
     ├── exclude/             排除规则匹配器（路径 / 名称 / 通配符）
     ├── config/              ~/.config/disk-cleaner/config.yaml 读写
-    ├── scan/                六个扫描器 + 指定目录 + 并发 + 去重 + 子项懒加载
+    ├── scan/                八个扫描器 + 指定目录 + 并发 + 去重 + 子项懒加载
     ├── clean/               引擎：guard + trash 组合执行
     ├── controller/          引擎门面：扫描/清理/排除/范围的并发安全入口
     ├── volinfo/             卷容量查询（cgo + Foundation，与系统设置同口径）
