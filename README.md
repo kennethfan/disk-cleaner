@@ -210,6 +210,23 @@ make verify-sign
 
 > 没有证书时 `make app` 仍可用，产出 ad-hoc 版本（仅本机可双击）；拿到证书后上述命令可直接使用，无需改代码。检查本机现有证书可用 `security find-identity -v -p codesigning`。
 
+## 发版
+
+版本号只有一处：`Makefile` 的 `VERSION`（`.app` 的 `Info.plist` 从它生成）。改完版本号后推送 `v*` tag 即触发 [Release workflow](.github/workflows/release.yml)：先校验 tag 与 `VERSION` 一致，再在 arm64 与 x86_64 两个 macOS runner 上各自原生构建、断言产物架构与签名，最后发布两个 `.app` 附件。
+
+```bash
+# 1. 改 Makefile 的 VERSION，然后本地验证版本号真的进了产物
+make app
+/usr/libexec/PlistBuddy -c "Print :CFBundleShortVersionString" "dist/磁盘清理.app/Contents/Info.plist"
+
+# 2. 提交并打 tag
+git commit -am "chore: 版本号从 0.1.0 改为 0.1.1"
+git tag -a v0.1.1 -m "v0.1.1"
+git push origin main && git push origin v0.1.1
+```
+
+完整流程、workflow 各道闸门的意图、发版后如何独立验证下载到的附件，见 [docs/release.md](docs/release.md)。
+
 ## 使用
 
 ### 扫描（只读）
@@ -360,6 +377,7 @@ Go 模块缓存所在目录被沙箱限制，给构建环境放宽该目录的�
 disk-cleaner/
 ├── cmd/disk-cleaner/        CLI + 图形界面入口（main / json / categories / exclude）
 ├── docs/signing.md          签名与公证完整指南
+├── docs/release.md          发版流程（版本号、tag、workflow 闸门、产物验证）
 ├── packaging/
 │   ├── Info.plist           .app 打包配置
 │   ├── AppIcon.icns         图标集（10 尺寸）
