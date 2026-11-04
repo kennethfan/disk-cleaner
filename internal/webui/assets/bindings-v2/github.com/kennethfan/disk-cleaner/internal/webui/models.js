@@ -85,6 +85,10 @@ export class CatView {
 
 /**
  * DiskInfo 是概览页需要的磁盘总/已用/可用容量。
+ * 
+ * 统计口径与 Finder / 系统设置一致（见 internal/volinfo）：
+ * Free 含系统可随时回收的空间，Reclaimable 是其中可回收的那部分，
+ * 用来解释「为什么这里比 df 多几 GB」。
  */
 export class DiskInfo {
     /**
@@ -112,6 +116,13 @@ export class DiskInfo {
              * @type {number}
              */
             this["free"] = 0;
+        }
+        if (!("reclaimable" in $$source)) {
+            /**
+             * @member
+             * @type {number}
+             */
+            this["reclaimable"] = 0;
         }
         if (!("label" in $$source)) {
             /**

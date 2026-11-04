@@ -51,6 +51,19 @@ export function Clean(keys) {
 }
 
 /**
+ * Disk 返回当前的磁盘容量，供概览页每次进入时刷新。
+ * 
+ * 容量是随时在变的：启动时读一次、之后一直用旧值，会让用户看到
+ * 几分钟前的数字，与系统设置对不上。前端切到概览页时重新取一次。
+ * @returns {$CancellablePromise<$models.DiskInfo>}
+ */
+export function Disk() {
+    return $Call.ByID(152290552).then(/** @type {($result: any) => any} */(($result) => {
+        return $$createType0($result);
+    }));
+}
+
+/**
  * ExcludeFromFile 把某一项所在的目录加入排除列表，
  * 并立刻从当前报表中过滤掉该项（对应原型的“行内排除”）。
  * 返回更新后的报表视图，前端无需重新扫描。
@@ -59,7 +72,7 @@ export function Clean(keys) {
  */
 export function ExcludeFromFile(key) {
     return $Call.ByID(3692384435, key).then(/** @type {($result: any) => any} */(($result) => {
-        return $$createType1($result);
+        return $$createType2($result);
     }));
 }
 
@@ -69,7 +82,7 @@ export function ExcludeFromFile(key) {
  */
 export function Excludes() {
     return $Call.ByID(2718463938).then(/** @type {($result: any) => any} */(($result) => {
-        return $$createType2($result);
+        return $$createType3($result);
     }));
 }
 
@@ -79,7 +92,7 @@ export function Excludes() {
  */
 export function GetReport() {
     return $Call.ByID(3886333517).then(/** @type {($result: any) => any} */(($result) => {
-        return $$createType1($result);
+        return $$createType2($result);
     }));
 }
 
@@ -89,7 +102,7 @@ export function GetReport() {
  */
 export function Init() {
     return $Call.ByID(3401369727).then(/** @type {($result: any) => any} */(($result) => {
-        return $$createType3($result);
+        return $$createType4($result);
     }));
 }
 
@@ -147,13 +160,14 @@ export function StartScan() {
  */
 export function Undo() {
     return $Call.ByID(1881593339).then(/** @type {($result: any) => any} */(($result) => {
-        return $$createType4($result);
+        return $$createType5($result);
     }));
 }
 
 // Private type creation functions
-const $$createType0 = $models.Report.createFrom;
-const $$createType1 = $Create.Nullable($$createType0);
-const $$createType2 = $Create.Array($Create.Any);
-const $$createType3 = $models.InitResult.createFrom;
-const $$createType4 = $models.RestoreResult.createFrom;
+const $$createType0 = $models.DiskInfo.createFrom;
+const $$createType1 = $models.Report.createFrom;
+const $$createType2 = $Create.Nullable($$createType1);
+const $$createType3 = $Create.Array($Create.Any);
+const $$createType4 = $models.InitResult.createFrom;
+const $$createType5 = $models.RestoreResult.createFrom;

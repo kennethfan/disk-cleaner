@@ -1,7 +1,9 @@
 package webui
 
 import (
+	"os"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 
@@ -236,5 +238,66 @@ func TestSelectItemsSortsBySizeDesc(t *testing.T) {
 	}
 	if pairs[0].key != a.Key {
 		t.Errorf("首项 key = %q, 期望体积更大的 %q", pairs[0].key, a.Key)
+	}
+}
+
+// TestDiskInfoArithmetic 验证概览页的容量自洽：
+// 已用 + 可用 = 总计。已用必须由总计减可用得出，不能混用 statfs 的
+// used——那样会把系统可回收空间算进已用，出现「已用 + 可用 > 总计」。
+func TestDiskInfoArithmetic(t *testing.T) {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		t.Fatalf("取主目录失败：%v", err)
+	}
+	d := buildDiskInfo(home)
+
+	if d.Total <= 0 {
+		t.Fatalf("总容量 = %d, 期望正数", d.Total)
+	}
+	if d.Used+d.Free != d.Total {
+		t.Errorf("已用 %d + 可用 %d = %d, 期望等于总计 %d",
+			d.Used, d.Free, d.Used+d.Free, d.Total)
+	}
+	if d.Used < 0 || d.Free < 0 {
+		t.Errorf("已用 %d / 可用 %d 不应为负", d.Used, d.Free)
+	}
+	if d.Reclaimable < 0 || d.Reclaimable > d.Free {
+		t.Errorf("可回收 %d 超出 [0, 可用 %d]", d.Reclaimable, d.Free)
+	}
+	if d.Label == "" {
+		t.Error("卷名不应为空")
+	}
+}
+
+// TestDiskInfoMatchesSystemCapacity 验证概览页的可用空间与 macOS
+// 系统口径（important usage）一致，而不是 statfs 的 Bavail。
+//
+// 两者的差别是「系统可回收空间」：真机上通常有几 GB，
+// 若实现退回了 statfs，Reclaimable 会恒为 0 且可用明显偏小。
+func TestDiskInfoMatchesSystemCapacity(t *testing.T) {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		t.Fatalf("取主目录失败：%v", err)
+	}
+	d := buildDiskInfo(home)
+
+	var st syscall.Statfs_t
+	if err := syscall.Statfs(home, &st); err != nil {
+		t.Fatalf("statfs: %v", err)
+	}
+	bsize := int64(st.Bsize)
+	if bsize <= 0 {
+		bsize = 4096
+	}
+	statfsFree := int64(st.Bavail) * bsize
+
+	// 系统口径的可用不会小于 statfs 的可用；允许相等（无可回收空间时）。
+	if d.Free < statfsFree {
+		t.Errorf("可用 %d 小于 statfs 的 %d，说明没走 important usage",
+			d.Free, statfsFree)
+	}
+	if d.Free-statfsFree != d.Reclaimable {
+		t.Errorf("可回收 %d ≠ 可用 %d − statfs %d = %d",
+			d.Reclaimable, d.Free, statfsFree, d.Free-statfsFree)
 	}
 }

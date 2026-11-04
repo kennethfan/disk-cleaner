@@ -660,8 +660,21 @@ function showView(v){
   $('actionBarLarge').classList.toggle('show',v==='large'&&scanned);
   if(v==='overview'){
     $('viewSub').textContent=scanned?`上次扫描：${scannedAtStr()}`:'上次扫描：从未';
+    // 容量随时在变，每次进入概览都重新取一次，避免显示几分钟前的数字。
+    // 先按旧值渲染，拿到新值后再覆盖，切换视图不会白屏等一次往返。
     renderOverview();
+    refreshDisk();
   }
+}
+
+/* 重新拉取磁盘容量。读取失败时保留旧值，不把界面清成「容量未知」。 */
+async function refreshDisk(){
+  try{
+    const d=await Service.Disk();
+    if(!d||!d.total)return;
+    DISK={...d};
+    if($('view-overview').classList.contains('show'))renderOverview();
+  }catch(e){/* 容量是展示信息，取不到就维持现状 */}
 }
 function scannedAtStr(){
   const iso=INIT?.scannedAt;
@@ -686,9 +699,17 @@ function renderOverview(){
   $('ringCap').textContent=`已使用 ${(DISK.used/GB).toFixed(1)} GB`;
   $('diskName').textContent=DISK.label||'磁盘';
   $('diskTitle').textContent=`${DISK.label||'磁盘'} — ${(DISK.total/GB).toFixed(1)} GB`;
-  $('diskSub').textContent=`已用 ${(DISK.used/GB).toFixed(1)} GB · 可用 ${(DISK.free/GB).toFixed(1)} GB（${(DISK.free/DISK.total*100).toFixed(1)}%）`;
+  // 与 Finder / 系统设置同源（important usage），可回收部分单独说明，
+  // 否则用户拿 df 或「磁盘工具」的数字对照会觉得这里多算了。
+  const reclaim=DISK.reclaimable>0
+    ? `，含系统可回收 ${(DISK.reclaimable/GB).toFixed(1)} GB`
+    : '';
+  $('diskSub').textContent=`已用 ${(DISK.used/GB).toFixed(1)} GB · 可用 ${(DISK.free/GB).toFixed(1)} GB（${(DISK.free/DISK.total*100).toFixed(1)}%）${reclaim}`;
   $('miniRing').style.background=`conic-gradient(var(--accent) 0 ${pct}%, #e5e5ea ${pct}% 100%)`;
   $('chipFree').textContent=`可用 ${(DISK.free/GB).toFixed(1)} GB / ${(DISK.total/GB).toFixed(1)} GB`;
+  $('chipFree').title=DISK.reclaimable>0
+    ? `与 Finder、系统设置一致：含系统按需回收的 ${(DISK.reclaimable/GB).toFixed(1)} GB`
+    : '与 Finder、系统设置一致';
   // 分类条
   $('diskBars').innerHTML=CATS.map(c=>`
     <div class="disk-bar">

@@ -15,6 +15,7 @@ import (
 	"github.com/kennethfan/disk-cleaner/internal/controller"
 	"github.com/kennethfan/disk-cleaner/internal/gate"
 	"github.com/kennethfan/disk-cleaner/internal/model"
+	"github.com/kennethfan/disk-cleaner/internal/volinfo"
 )
 
 // Service 是暴露给 WebView 前端的首个绑定服务。
@@ -85,11 +86,16 @@ func (s *Service) keyOf(k string) (model.Item, bool) {
 // ==================== 初始状态 ====================
 
 // DiskInfo 是概览页需要的磁盘总/已用/可用容量。
+//
+// 统计口径与 Finder / 系统设置一致（见 internal/volinfo）：
+// Free 含系统可随时回收的空间，Reclaimable 是其中可回收的那部分，
+// 用来解释「为什么这里比 df 多几 GB」。
 type DiskInfo struct {
-	Total int64  `json:"total"`
-	Used  int64  `json:"used"`
-	Free  int64  `json:"free"`
-	Label string `json:"label"`
+	Total       int64  `json:"total"`
+	Used        int64  `json:"used"`
+	Free        int64  `json:"free"`
+	Reclaimable int64  `json:"reclaimable"`
+	Label       string `json:"label"`
 }
 
 // InitResult 是前端加载时的初始状态。
@@ -110,15 +116,9 @@ type InitResult struct {
 
 // Init 返回启动所需的初始状态；扫描范围从配置恢复。
 func (s *Service) Init() InitResult {
-	total, used, free, ok := statfs(s.ctrl.Home())
-	if !ok {
-		// statfs 失败极罕见（本机 home 必在本地卷）；
-		// 返回零值让前端按“未知”处理，而不是阻塞启动。
-		total, used, free = 0, 0, 0
-	}
 	res := InitResult{}
 	res.Home = s.ctrl.Home()
-	res.Disk = DiskInfo{Total: total, Used: used, Free: free, Label: volumeLabel(s.ctrl.Home())}
+	res.Disk = s.diskInfo()
 	res.Excludes = s.ctrl.ExcludeRules()
 	res.TargetPaths = s.ctrl.TargetPaths()
 	res.ScannerNames = s.ctrl.ScannerNames()
@@ -129,6 +129,36 @@ func (s *Service) Init() InitResult {
 		res.ScannedAt = latest.ScannedAt
 	}
 	return res
+}
+
+// Disk 返回当前的磁盘容量，供概览页每次进入时刷新。
+//
+// 容量是随时在变的：启动时读一次、之后一直用旧值，会让用户看到
+// 几分钟前的数字，与系统设置对不上。前端切到概览页时重新取一次。
+func (s *Service) Disk() DiskInfo { return s.diskInfo() }
+
+// diskInfo 组装概览页的容量视图。
+func (s *Service) diskInfo() DiskInfo { return buildDiskInfo(s.ctrl.Home()) }
+
+// buildDiskInfo 按与 Finder / 系统设置一致的口径组装容量视图。
+//
+// 读取失败极罕见（本机 home 必在本地卷），返回零值让前端按
+// 「容量未知」处理，而不是阻塞启动或弹错误。
+func buildDiskInfo(home string) DiskInfo {
+	cap, err := volinfo.Query(home)
+	if err != nil {
+		return DiskInfo{Label: volumeLabel(home)}
+	}
+	return DiskInfo{
+		Total: cap.Total,
+		// 已用 = 总计 − 可用，保证「已用 + 可用 = 总计」，
+		// 与系统设置的算术关系一致（不能用 statfs 的 used，
+		// 那会把可回收空间算进已用）。
+		Used:        cap.Total - cap.Free,
+		Free:        cap.Free,
+		Reclaimable: cap.Reclaimable,
+		Label:       volumeLabel(home),
+	}
 }
 
 // ==================== 扫描 ====================
@@ -528,28 +558,6 @@ func (s *Service) SetScope(paths []string) error {
 }
 
 // ==================== 磁盘工具 ====================
-
-// statfs 返回包含 path 的卷的总/已用/可用容量（字节）。
-func statfs(path string) (total, used, free int64, ok bool) {
-	var st syscall.Statfs_t
-	if err := syscall.Statfs(path, &st); err != nil {
-		return 0, 0, 0, false
-	}
-	bsize := int64(st.Bsize)
-	if bsize <= 0 {
-		bsize = 4096
-	}
-	total = int64(st.Blocks) * bsize
-	free = int64(st.Bavail) * bsize
-	used = total - int64(st.Bfree)*bsize
-	if used < 0 {
-		used = 0
-	}
-	if free < 0 {
-		free = 0
-	}
-	return total, used, free, true
-}
 
 // volumeLabel 返回包含 path 的卷的展示名。
 //
