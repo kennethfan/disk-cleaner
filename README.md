@@ -382,6 +382,7 @@ disk-cleaner/
 ├── cmd/disk-cleaner/        CLI + 图形界面入口（main / json / categories / exclude）
 ├── docs/signing.md          签名与公证完整指南
 ├── docs/release.md          发版流程（版本号、tag、workflow 闸门、产物验证）
+├── docs/清理口径对照.md      清理口径审计：历史问题与修复记录
 ├── packaging/
 │   ├── Info.plist           .app 打包配置
 │   ├── AppIcon.icns         图标集（10 尺寸）
