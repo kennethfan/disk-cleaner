@@ -3,6 +3,10 @@ name: CI
 on:
   push:
   pull_request:
+  # 允许在 Actions 页面点按钮手动跑一次。用途：被 arm64 runner 容量卡掉
+  # （job 结论 cancelled、steps 为 0）时，网页上直接重跑，不必装 gh 或
+  # 本地建空提交。命令行等价物是 `gh run rerun <run-id>`。
+  workflow_dispatch:
 
 jobs:
   check:
