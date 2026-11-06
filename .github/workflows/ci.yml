@@ -8,7 +8,15 @@ jobs:
   check:
     # 必须用 macOS：代码直接依赖 darwin 的 syscall（Statfs、废纸篓），
     # WebView 壳还要 cgo，Linux 上无法编译。
-    runs-on: macos-latest
+    #
+    # 标签钉在 macOS 15 而不是 macos-latest：latest 会漂移（现为 macOS 26），
+    # 一旦漂移，CI 验的 SDK 与最低系统版本就和 release.yml 的两个 runner
+    # （macos-15 / macos-15-intel）不是同一代，出现「CI 绿但发布产物有别」。
+    #
+    # 注意：macos-15 与 macos-latest 都是 arm64，换标签解决的是版本漂移，
+    # 不解决 arm64 runner 的排队问题（GitHub 官方对 arm64 有容量提示）。
+    # 真被排队卡住时用 `gh run rerun <run-id>` 重试，而不是改这里的标签。
+    runs-on: macos-15
     steps:
       - uses: actions/checkout@v7
 
